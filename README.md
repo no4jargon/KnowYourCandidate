@@ -1,7 +1,7 @@
 
   # Build Responsive Web App
 
-  This is a code bundle for Build Responsive Web App. The original project is available at https://www.figma.com/design/q3E2q32pAfrfEJDRQbIifT/Build-Responsive-Web-App.
+  This is a code bundle for a responsive web app for a tool that assists business higher the best candidate for a job
 
   ## Running the code
 
