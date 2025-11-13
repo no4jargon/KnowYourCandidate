@@ -1,5 +1,5 @@
 
-  This is a code bundle for a responsive web app for a tool that assists business higher the best candidate for a job
+  This is a code bundle for a responsive web app tool that assists business higher the best candidate for a job
 
   ## Running the code
 
