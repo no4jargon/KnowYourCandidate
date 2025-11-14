@@ -1,3 +1,5 @@
+import type { Test as SharedTest, TestSection as SharedTestSection, Question as SharedQuestion } from '../../shared/testSchema';
+
 export interface HiringTask {
   id: string;
   employer_id: string;
@@ -37,38 +39,9 @@ export interface JDFacets {
   math_data_intensity: string;
 }
 
-export interface Test {
-  id: string;
-  public_id: string;
-  hiring_task_id: string;
-  type: 'aptitude' | 'domain';
-  difficulty: 'easy' | 'medium' | 'hard';
-  sections: TestSection[];
-  metadata: {
-    version: number;
-    generated_at: string;
-    source_model: string;
-  };
-}
-
-export interface TestSection {
-  id: string;
-  name: string;
-  weight: number;
-  questions: Question[];
-}
-
-export interface Question {
-  id: string;
-  type: 'multiple_choice' | 'numeric' | 'text';
-  prompt: string;
-  options?: string[];
-  correct_answer: {
-    kind: 'exact' | 'one_of' | 'numeric_range' | 'llm_rubric';
-    value: any;
-  };
-  max_score: number;
-}
+export type Test = SharedTest;
+export type TestSection = SharedTestSection;
+export type Question = SharedQuestion;
 
 export interface CandidateAttempt {
   attempt_id: string;

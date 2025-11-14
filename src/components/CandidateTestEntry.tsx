@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { mockTests, mockHiringTasks } from '../data/mockData';
+import { mockHiringTasks } from '../data/mockData';
 import { Screen } from '../App';
+import type { HiringTask, Test } from '../types';
+import { fetchTestByPublicId } from '../api/tests';
 
 interface CandidateTestEntryProps {
   testPublicId: string;
@@ -13,16 +15,63 @@ interface CandidateTestEntryProps {
 export function CandidateTestEntry({ testPublicId, onNavigate }: CandidateTestEntryProps) {
   const [candidateName, setCandidateName] = useState('');
 
-  // Find test by public_id
-  const test = Object.values(mockTests).find((t) => t.public_id === testPublicId);
-  const task = test ? mockHiringTasks.find((t) => t.id === test.hiring_task_id) : null;
+  const [test, setTest] = useState<Test | null>(null);
+  const [task, setTask] = useState<HiringTask | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setErrorMessage(null);
+      try {
+        const fetched = await fetchTestByPublicId(testPublicId);
+        if (cancelled) return;
+        if (!fetched) {
+          setTest(null);
+          setTask(null);
+          setErrorMessage('This test link is invalid or has expired.');
+          return;
+        }
+        setTest(fetched);
+        const relatedTask = mockHiringTasks.find((t) => t.id === fetched.hiring_task_id) ?? null;
+        setTask(relatedTask);
+      } catch (err) {
+        console.error('Failed to load test', err);
+        if (!cancelled) {
+          setErrorMessage('Unable to load the test. Please try again later.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [testPublicId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 max-w-md w-full text-center">
+          <h2 className="mb-4">Loading Test…</h2>
+          <p className="text-gray-600">Please wait while we prepare your assessment.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!test || !task) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 max-w-md w-full text-center">
           <h2 className="mb-4">Test Not Found</h2>
-          <p className="text-gray-600">This test link is invalid or has expired.</p>
+          <p className="text-gray-600">{errorMessage ?? 'This test link is invalid or has expired.'}</p>
         </div>
       </div>
     );

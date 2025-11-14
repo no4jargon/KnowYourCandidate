@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Progress } from './ui/progress';
-import { mockTests } from '../data/mockData';
 import { Screen } from '../App';
-import { Question, Answer } from '../types';
+import { Question, Answer, Test } from '../types';
 import { AlertCircle, Check } from 'lucide-react';
+import { fetchTestByPublicId } from '../api/tests';
 
 interface CandidateTestTakingProps {
   testPublicId: string;
@@ -21,11 +21,47 @@ export function CandidateTestTaking({
   candidateName,
   onNavigate
 }: CandidateTestTakingProps) {
-  const test = Object.values(mockTests).find((t) => t.public_id === testPublicId);
-  
-  // Flatten all questions
-  const allQuestions: Question[] = test?.sections.flatMap((s) => s.questions) || [];
-  
+  const [test, setTest] = useState<Test | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setErrorMessage(null);
+      try {
+        const fetched = await fetchTestByPublicId(testPublicId);
+        if (cancelled) return;
+        if (!fetched) {
+          setTest(null);
+          setErrorMessage('This test link is invalid or has expired.');
+          return;
+        }
+        setTest(fetched);
+      } catch (err) {
+        console.error('Failed to load candidate test', err);
+        if (!cancelled) {
+          setErrorMessage('Unable to load the test at the moment. Please try again later.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [testPublicId]);
+
+  const allQuestions: Question[] = useMemo(
+    () => (test ? test.sections.flatMap((section) => section.questions) : []),
+    [test]
+  );
+
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<{ [questionId: string]: string | number }>({});
   const [startTime] = useState(Date.now());
@@ -40,8 +76,20 @@ export function CandidateTestTaking({
     return () => clearInterval(interval);
   }, [startTime]);
 
+  if (loading) {
+    return <div className="p-8">Loading test…</div>;
+  }
+
   if (!test) {
-    return <div className="p-8">Test not found</div>;
+    return (
+      <div className="p-8 text-red-600">
+        {errorMessage ?? 'This test link is invalid or has expired.'}
+      </div>
+    );
+  }
+
+  if (allQuestions.length === 0) {
+    return <div className="p-8">This test is not yet available. Please contact the recruiter.</div>;
   }
 
   const currentQuestion = allQuestions[currentQuestionIndex];
