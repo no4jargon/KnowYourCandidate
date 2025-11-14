@@ -15,8 +15,6 @@ const {
   JDFacetsSchema
 } = require('./services/facetService');
 
-const { randomUUID } = crypto;
-
 const app = express();
 const port = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-me';
@@ -288,7 +286,6 @@ app.post('/api/hiring-tasks', async (req, res, next) => {
     );
 
     const task = createTask({
-      id: randomUUID(),
       employer_id: payload.employerId,
       title: payload.title,
       location: payload.location,
@@ -297,14 +294,6 @@ app.post('/api/hiring-tasks', async (req, res, next) => {
       has_aptitude_test: payload.hasAptitudeTest ? 1 : 0,
       has_domain_test: payload.hasDomainTest ? 1 : 0,
       has_interview_script: payload.hasInterviewScript ? 1 : 0,
-      aptitude_test_id: null,
-      domain_test_id: null,
-      stats: {
-        aptitude_candidates: 0,
-        aptitude_avg_score: 0,
-        domain_candidates: 0,
-        domain_avg_score: 0
-      },
       metadata: payload.metadata || {},
       llm_model: model,
       llm_response_id: responseId

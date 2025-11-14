@@ -53,6 +53,7 @@ This document is the authoritative reference for the "Assess" product design. Ev
 
 ## 9. Data Model & APIs
 - **Primary Tables:** employers, hiring_tasks, tests, test_attempts, (optional) test_responses, interview_scripts. Columns align with Section 9.1.
+- **Stats Persistence:** `hiring_tasks.stats` stores per-artifact summaries `{ aptitude, domain, interview }` where each entry includes the persisted artifact ID (`test_id`/`script_id`), attempt counts, averages, and last-activity timestamps.
 - **Core APIs:** login; CRUD for hiring tasks; generation endpoints for each artifact; employer test fetch/edit; public test retrieval & attempt lifecycle; candidate aggregation & score editing endpoints. See Section 9.2 for route sketches.
 
 ## 10. Architecture & Modularization
