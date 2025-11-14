@@ -114,6 +114,10 @@ function deleteAttempt(id) {
 }
 
 function createResponse(response) {
+  return upsertResponse(response);
+}
+
+function upsertResponse(response) {
   const stmt = db.prepare(`
     INSERT INTO test_responses (
       id,
@@ -132,9 +136,14 @@ function createResponse(response) {
       @score,
       @metadata
     )
+    ON CONFLICT(attempt_id, question_id) DO UPDATE SET
+      raw_answer = excluded.raw_answer,
+      normalized_answer = excluded.normalized_answer,
+      score = excluded.score,
+      metadata = excluded.metadata
   `);
 
-  const id = response.id || randomUUID();
+  const id = response.id || response.existing_id || randomUUID();
   stmt.run({
     ...response,
     id,
@@ -144,12 +153,38 @@ function createResponse(response) {
     metadata: JSON.stringify(response.metadata || {})
   });
 
-  return getResponseById(id);
+  return getResponseByAttemptAndQuestion(response.attempt_id, response.question_id);
+}
+
+function bulkUpsertResponses(attemptId, responses = []) {
+  const run = db.transaction((items) => {
+    for (const item of items) {
+      upsertResponse({
+        attempt_id: attemptId,
+        question_id: item.question_id,
+        raw_answer: item.raw_answer,
+        normalized_answer: item.normalized_answer,
+        score: item.score,
+        metadata: item.metadata || {}
+      });
+    }
+  });
+
+  run(responses);
+  return listResponsesByAttempt(attemptId);
 }
 
 function getResponseById(id) {
   const stmt = db.prepare('SELECT * FROM test_responses WHERE id = ?');
   const row = stmt.get(id);
+  return parseResponseRow(row);
+}
+
+function getResponseByAttemptAndQuestion(attemptId, questionId) {
+  const stmt = db.prepare(
+    'SELECT * FROM test_responses WHERE attempt_id = ? AND question_id = ?'
+  );
+  const row = stmt.get(attemptId, questionId);
   return parseResponseRow(row);
 }
 
@@ -173,7 +208,10 @@ module.exports = {
   updateAttempt,
   deleteAttempt,
   createResponse,
+  upsertResponse,
+  bulkUpsertResponses,
   getResponseById,
+  getResponseByAttemptAndQuestion,
   listResponsesByAttempt,
   deleteResponsesByAttempt
 };

@@ -46,6 +46,7 @@ This document is the authoritative reference for the "Assess" product design. Ev
 - **Entry:** shareable link format `/t/{test_public_id}`. Landing shows task/test title, description, AI-assisted disclaimer, name input.
 - **UI Requirements:** lightweight HTML/CSS/JS, one question per view (or very small group), mobile-first layout, large tap targets, minimal assets, autosave progress locally, explicit submit flow with confirmation and timer display.
 - **Scoring:** on submit, backend computes scores (direct comparison for MCQ/numeric range; optional LLM grading for text). Unscored text answers default to 0 until graded. Candidate receives thank-you screen; optional total score reveal.
+  - **Attempt lifecycle APIs:** `/api/tests/public/:publicId/attempts` creates/resumes attempts, `/api/tests/attempts/:attemptId/responses` handles autosave writes, `/api/tests/attempts/:attemptId/submit` finalizes responses, triggers scoring (including LLM rubric evaluation), and updates hiring-task stats/activity feed.
 
 ## 8. Employer Test Editing
 - **Editor:** section/question list with editable prompt, type, options, correct answer, sample formats. Must validate schema before save; reject invalid changes with clear messages.
@@ -55,6 +56,7 @@ This document is the authoritative reference for the "Assess" product design. Ev
 - **Primary Tables:** employers, hiring_tasks, tests, test_attempts, (optional) test_responses, interview_scripts. Columns align with Section 9.1.
 - **Stats Persistence:** `hiring_tasks.stats` stores per-artifact summaries `{ aptitude, domain, interview }` where each entry includes the persisted artifact ID (`test_id`/`script_id`), attempt counts, averages, and last-activity timestamps.
 - **Core APIs:** login; CRUD for hiring tasks; generation endpoints for each artifact; employer test fetch/edit; public test retrieval & attempt lifecycle; candidate aggregation & score editing endpoints. See Section 9.2 for route sketches.
+  - Attempt lifecycle persists autosaves in `test_responses`, computes totals on submit, refreshes `hiring_tasks.stats`, and surfaces candidate events (started, completed, score posted) through the activity feed.
 
 ## 10. Architecture & Modularization
 - **Recommended Stack:**

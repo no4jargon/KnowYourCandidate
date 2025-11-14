@@ -9,7 +9,8 @@ const {
   listTasks,
   getTaskById,
   getActivityFeed,
-  updateTask
+  updateTask,
+  refreshStatsForTest
 } = require('./repositories/hiringTaskRepository');
 const {
   createTest,
@@ -18,6 +19,13 @@ const {
   getTestByTaskAndKind,
   updateTest
 } = require('./repositories/testRepository');
+const {
+  createAttempt,
+  getAttemptById,
+  listResponsesByAttempt,
+  bulkUpsertResponses,
+  updateAttempt
+} = require('./repositories/candidateAttemptRepository');
 const {
   createInterviewScript,
   getInterviewScriptById,
@@ -32,6 +40,7 @@ const {
   generateInterviewScript,
   validateInterviewScriptUpdate
 } = require('./services/interviewScriptService');
+const { scoreAttempt, normalizeAnswer } = require('./services/scoringService');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -178,6 +187,20 @@ function sanitizeEmployer(employer) {
   };
 }
 
+function buildQuestionIndex(test) {
+  const map = new Map();
+  if (!test?.sections) {
+    return map;
+  }
+  for (const section of test.sections) {
+    for (const question of section.questions || []) {
+      const id = question.id || question.prompt;
+      map.set(id, { ...question, id });
+    }
+  }
+  return map;
+}
+
 function authenticateRequest(req) {
   const cookies = parseCookies(req.headers.cookie || '');
   const token = cookies[TOKEN_COOKIE];
@@ -237,6 +260,25 @@ const PaginationQuerySchema = z.object({
   page: z.preprocess((value) => Number(value ?? 1), z.number().int().min(1)),
   pageSize: z.preprocess((value) => Number(value ?? 10), z.number().int().min(1).max(100)),
   employerId: z.string().optional()
+});
+
+const StartAttemptSchema = z.object({
+  candidateName: z.string().min(1, 'Candidate name is required'),
+  candidateEmail: z.string().email().optional(),
+  attemptId: z.string().uuid().optional()
+});
+
+const CandidateResponseSchema = z.object({
+  questionId: z.string().min(1),
+  rawAnswer: z.any().optional()
+});
+
+const AutosaveResponsesSchema = z.object({
+  responses: z.array(CandidateResponseSchema).min(1)
+});
+
+const SubmitAttemptSchema = z.object({
+  responses: z.array(CandidateResponseSchema).optional()
 });
 
 const GenerateTestPayloadSchema = z
@@ -566,6 +608,198 @@ app.get('/api/tests/public/:publicId', (req, res, next) => {
       return;
     }
     res.json({ data: test });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/tests/public/:publicId/attempts', (req, res, next) => {
+  try {
+    const payload = StartAttemptSchema.parse(req.body ?? {});
+    const test = getTestByPublicId(req.params.publicId);
+    if (!test) {
+      res.status(404).json({ error: 'Test not found' });
+      return;
+    }
+
+    let attempt;
+    if (payload.attemptId) {
+      attempt = getAttemptById(payload.attemptId);
+      if (!attempt || attempt.test_id !== test.id) {
+        res.status(404).json({ error: 'Attempt not found' });
+        return;
+      }
+      if (attempt.submitted_at) {
+        res.status(409).json({ error: 'Attempt already submitted' });
+        return;
+      }
+    } else {
+      attempt = createAttempt({
+        test_id: test.id,
+        hiring_task_id: test.hiring_task_id,
+        candidate_name: payload.candidateName,
+        candidate_email: payload.candidateEmail ?? null,
+        metadata: {
+          started_via: 'candidate',
+          last_autosave_at: null
+        }
+      });
+    }
+
+    const responses = listResponsesByAttempt(attempt.id);
+    const statusCode = payload.attemptId ? 200 : 201;
+    res.status(statusCode).json({
+      data: {
+        attempt,
+        responses,
+        test: {
+          id: test.id,
+          public_id: test.public_id,
+          kind: test.kind,
+          title: test.title
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/tests/attempts/:attemptId/responses', (req, res, next) => {
+  try {
+    const payload = AutosaveResponsesSchema.parse(req.body ?? {});
+    const attempt = getAttemptById(req.params.attemptId);
+    if (!attempt) {
+      res.status(404).json({ error: 'Attempt not found' });
+      return;
+    }
+    if (attempt.submitted_at) {
+      res.status(409).json({ error: 'Attempt already submitted' });
+      return;
+    }
+
+    const test = getTestById(attempt.test_id);
+    if (!test) {
+      res.status(404).json({ error: 'Test not found' });
+      return;
+    }
+
+    const questionIndex = buildQuestionIndex(test);
+    const formattedResponses = [];
+    for (const response of payload.responses) {
+      const question = questionIndex.get(response.questionId);
+      if (!question) {
+        res.status(400).json({ error: `Unknown question id: ${response.questionId}` });
+        return;
+      }
+      const rawAnswer = Object.prototype.hasOwnProperty.call(response, 'rawAnswer')
+        ? response.rawAnswer
+        : null;
+      const normalized = normalizeAnswer(question, rawAnswer);
+      formattedResponses.push({
+        question_id: question.id,
+        raw_answer: rawAnswer ?? null,
+        normalized_answer: normalized,
+        score: null
+      });
+    }
+
+    const responses = bulkUpsertResponses(attempt.id, formattedResponses);
+    const metadata = {
+      ...(attempt.metadata || {}),
+      last_autosave_at: new Date().toISOString()
+    };
+    const updatedAttempt = updateAttempt(attempt.id, { metadata });
+
+    res.json({
+      data: {
+        attempt: updatedAttempt,
+        responses
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/tests/attempts/:attemptId/submit', async (req, res, next) => {
+  try {
+    const payload = SubmitAttemptSchema.parse(req.body ?? {});
+    const attempt = getAttemptById(req.params.attemptId);
+    if (!attempt) {
+      res.status(404).json({ error: 'Attempt not found' });
+      return;
+    }
+    if (attempt.submitted_at) {
+      res.status(409).json({ error: 'Attempt already submitted' });
+      return;
+    }
+
+    const test = getTestById(attempt.test_id);
+    if (!test) {
+      res.status(404).json({ error: 'Test not found' });
+      return;
+    }
+
+    const task = getTaskById(attempt.hiring_task_id);
+    if (!task) {
+      res.status(404).json({ error: 'Hiring task not found' });
+      return;
+    }
+
+    if (payload.responses && payload.responses.length) {
+      const questionIndex = buildQuestionIndex(test);
+      const formattedResponses = [];
+      for (const response of payload.responses) {
+        const question = questionIndex.get(response.questionId);
+        if (!question) {
+          res.status(400).json({ error: `Unknown question id: ${response.questionId}` });
+          return;
+        }
+        const rawAnswer = Object.prototype.hasOwnProperty.call(response, 'rawAnswer')
+          ? response.rawAnswer
+          : null;
+        const normalized = normalizeAnswer(question, rawAnswer);
+        formattedResponses.push({
+          question_id: question.id,
+          raw_answer: rawAnswer ?? null,
+          normalized_answer: normalized,
+          score: null
+        });
+      }
+      bulkUpsertResponses(attempt.id, formattedResponses);
+    }
+
+    const existingResponses = listResponsesByAttempt(attempt.id);
+    const scoring = await scoreAttempt({
+      test,
+      attempt: { ...attempt, task_title: task.title },
+      responses: existingResponses
+    });
+
+    const savedResponses = bulkUpsertResponses(attempt.id, scoring.responses);
+    const submittedAt = new Date().toISOString();
+    const metadata = {
+      ...(attempt.metadata || {}),
+      last_scored_at: submittedAt,
+      llm_events: scoring.llm
+    };
+    const updatedAttempt = updateAttempt(attempt.id, {
+      submitted_at: submittedAt,
+      total_score: scoring.totalScore,
+      max_score: scoring.maxScore,
+      metadata
+    });
+
+    const updatedTask = refreshStatsForTest(test.id);
+
+    res.json({
+      data: {
+        attempt: updatedAttempt,
+        responses: savedResponses
+      },
+      task: updatedTask ? { id: updatedTask.id, stats: updatedTask.stats } : undefined
+    });
   } catch (error) {
     next(error);
   }

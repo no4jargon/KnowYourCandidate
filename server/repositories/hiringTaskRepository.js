@@ -1,6 +1,6 @@
 const { randomUUID } = require('crypto');
 const { db, parseRow } = require('../db');
-const { createTest } = require('./testRepository');
+const { createTest, getTestById } = require('./testRepository');
 const { createInterviewScript } = require('./interviewScriptRepository');
 
 function buildInitialStats() {
@@ -228,17 +228,17 @@ function listTasks({ page, pageSize, employerId }) {
 }
 
 function getActivityFeed({ limit = 15, employerId } = {}) {
-  const baseQuery = employerId ? 'WHERE employer_id = @employer_id' : '';
-  const stmt = db.prepare(`
+  const baseTaskQuery = employerId ? 'WHERE employer_id = @employer_id' : '';
+  const taskStmt = db.prepare(`
     SELECT * FROM hiring_tasks
-    ${baseQuery}
+    ${baseTaskQuery}
     ORDER BY datetime(created_at) DESC
   `);
-  const rows = stmt.all({ employer_id: employerId });
+  const taskRows = taskStmt.all({ employer_id: employerId });
 
-  const events = rows.flatMap((row) => {
+  const events = taskRows.flatMap((row) => {
     const task = parseRow(row);
-    const items = [
+    const base = [
       {
         timestamp: task.created_at,
         message: `New hiring task created: ${task.title}`
@@ -250,32 +250,116 @@ function getActivityFeed({ limit = 15, employerId } = {}) {
     ];
 
     if (task.has_aptitude_test) {
-      items.push({
+      base.push({
         timestamp: task.updated_at,
         message: `Aptitude test ready for ${task.title}`
       });
     }
     if (task.has_domain_test) {
-      items.push({
+      base.push({
         timestamp: task.updated_at,
         message: `Domain test ready for ${task.title}`
       });
     }
     if (task.has_interview_script) {
-      items.push({
+      base.push({
         timestamp: task.updated_at,
         message: `Interview script prepared for ${task.title}`
       });
     }
 
-    return items;
+    return base;
   });
 
+  const attemptLimit = limit * 3;
+  const attemptWhere = employerId ? 'WHERE ht.employer_id = @employer_id' : '';
+  const attemptStmt = db.prepare(`
+    SELECT
+      ta.*, 
+      t.kind AS test_kind,
+      ht.title AS task_title
+    FROM test_attempts ta
+    INNER JOIN tests t ON t.id = ta.test_id
+    INNER JOIN hiring_tasks ht ON ht.id = ta.hiring_task_id
+    ${attemptWhere}
+    ORDER BY datetime(ta.started_at) DESC
+    LIMIT @attempt_limit
+  `);
+  const attemptRows = attemptStmt.all({
+    employer_id: employerId,
+    attempt_limit: attemptLimit
+  });
+
+  for (const attempt of attemptRows) {
+    if (attempt.started_at) {
+      events.push({
+        timestamp: attempt.started_at,
+        message: `Candidate ${attempt.candidate_name} started the ${attempt.test_kind} test for ${attempt.task_title}`
+      });
+    }
+
+    if (attempt.submitted_at) {
+      events.push({
+        timestamp: attempt.submitted_at,
+        message: `Candidate ${attempt.candidate_name} completed the ${attempt.test_kind} test for ${attempt.task_title}`
+      });
+
+      if (attempt.total_score != null) {
+        const totalScore = Number(attempt.total_score) || 0;
+        const maxScore = Number(attempt.max_score) || 20;
+        events.push({
+          timestamp: attempt.submitted_at,
+          message: `Score posted: ${attempt.candidate_name} scored ${totalScore}/${maxScore} on the ${attempt.test_kind} test for ${attempt.task_title}`
+        });
+      }
+    }
+  }
+
   const sorted = events
-    .filter(Boolean)
+    .filter((item) => item && item.timestamp)
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   return sorted.slice(0, limit);
+}
+
+function refreshStatsForTest(testId) {
+  const test = getTestById(testId);
+  if (!test) {
+    return null;
+  }
+
+  const summaryStmt = db.prepare(`
+    SELECT
+      COUNT(CASE WHEN submitted_at IS NOT NULL THEN 1 END) AS submitted_attempts,
+      AVG(CASE WHEN submitted_at IS NOT NULL THEN total_score ELSE NULL END) AS average_score,
+      MAX(submitted_at) AS last_attempt_at
+    FROM test_attempts
+    WHERE test_id = @test_id
+  `);
+
+  const summary = summaryStmt.get({ test_id: testId }) || {};
+  const attempts = Number(summary.submitted_attempts || 0);
+  const averageScore = attempts ? Number(summary.average_score || 0) : 0;
+  const lastAttemptAt = summary.last_attempt_at || null;
+
+  const task = getTaskById(test.hiring_task_id);
+  if (!task) {
+    return null;
+  }
+
+  const statsKey = test.kind === 'aptitude' ? 'aptitude' : 'domain';
+  const updatedStats = {
+    ...task.stats,
+    [statsKey]: {
+      ...(task.stats?.[statsKey] || {}),
+      test_id: test.id,
+      attempts,
+      average_score: averageScore,
+      last_attempt_at: lastAttemptAt
+    }
+  };
+
+  return updateTask(task.id, { stats: updatedStats });
 }
 
 module.exports = {
@@ -284,5 +368,6 @@ module.exports = {
   listTasks,
   getActivityFeed,
   updateTask,
-  buildInitialStats
+  buildInitialStats,
+  refreshStatsForTest
 };
