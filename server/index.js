@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-me';
 const TOKEN_COOKIE = 'kyc_session';
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
