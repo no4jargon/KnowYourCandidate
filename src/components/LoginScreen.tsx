@@ -2,18 +2,34 @@ import { useState } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { login, EmployerSession } from '../api/auth';
 
 interface LoginScreenProps {
-  onLogin: () => void;
+  onAuthenticated: (session: EmployerSession) => void;
 }
 
-export function LoginScreen({ onLogin }: LoginScreenProps) {
+export function LoginScreen({ onAuthenticated }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin();
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const session = await login(email, password);
+      onAuthenticated(session);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Unable to log in right now.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -50,12 +66,13 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
               />
             </div>
 
-            <Button type="submit" className="w-full">
-              Login
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? 'Signing in…' : 'Login'}
             </Button>
           </form>
 
           <div className="mt-6 text-center">
+            {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
             <p className="text-gray-500">v0 - single employer account, no multi user roles yet</p>
           </div>
         </div>

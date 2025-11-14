@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LoginScreen } from './components/LoginScreen';
 import { EmployerDashboard } from './components/EmployerDashboard';
 import { CreateHiringTaskScreen } from './components/CreateHiringTaskScreen';
@@ -7,8 +7,9 @@ import { TestEditorScreen } from './components/TestEditorScreen';
 import { CandidateTestEntry } from './components/CandidateTestEntry';
 import { CandidateTestTaking } from './components/CandidateTestTaking';
 import { ThankYouScreen } from './components/ThankYouScreen';
+import { EmployerSession, fetchSession, logout as apiLogout } from './api/auth';
 
-export type Screen = 
+export type Screen =
   | { type: 'login' }
   | { type: 'dashboard' }
   | { type: 'create-task' }
@@ -18,34 +19,108 @@ export type Screen =
   | { type: 'candidate-test'; testPublicId: string; attemptId: string; candidateName: string }
   | { type: 'thank-you' };
 
+const employerScreens = new Set<Screen['type']>(['dashboard', 'create-task', 'task-detail', 'test-editor']);
+const candidateScreens = new Set<Screen['type']>(['candidate-entry', 'candidate-test', 'thank-you']);
+
+function screenRequiresAuth(screen: Screen) {
+  return employerScreens.has(screen.type);
+}
+
+function isCandidateScreen(screen: Screen) {
+  return candidateScreens.has(screen.type);
+}
+
 export default function App() {
   // Check if URL contains candidate test route
   const hash = window.location.hash;
   const candidateMatch = hash.match(/#\/t\/([^\/]+)/);
-  
+
   const [currentScreen, setCurrentScreen] = useState<Screen>(
-    candidateMatch 
+    candidateMatch
       ? { type: 'candidate-entry', testPublicId: candidateMatch[1] }
       : { type: 'login' }
   );
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [session, setSession] = useState<EmployerSession | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
 
-  const navigate = (screen: Screen) => {
-    setCurrentScreen(screen);
+  const navigate = useCallback(
+    (screen: Screen) => {
+      if (screenRequiresAuth(screen) && !session) {
+        setCurrentScreen({ type: 'login' });
+        return;
+      }
+      setCurrentScreen(screen);
+    },
+    [session]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const init = async () => {
+      try {
+        const refreshed = await fetchSession();
+        if (cancelled) {
+          return;
+        }
+        setSession(refreshed);
+        if (refreshed) {
+          setCurrentScreen((prev) => (prev.type === 'login' ? { type: 'dashboard' } : prev));
+        } else {
+          setCurrentScreen((prev) => (screenRequiresAuth(prev) ? { type: 'login' } : prev));
+        }
+      } catch (error) {
+        console.error('Failed to refresh employer session', error);
+        if (!cancelled) {
+          setSession(null);
+          setCurrentScreen((prev) => (screenRequiresAuth(prev) ? { type: 'login' } : prev));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsInitializing(false);
+        }
+      }
+    };
+
+    init();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session) {
+      setCurrentScreen((prev) => (screenRequiresAuth(prev) ? { type: 'login' } : prev));
+    }
+  }, [session]);
+
+  const handleLogin = (newSession: EmployerSession) => {
+    setSession(newSession);
+    setCurrentScreen({ type: 'dashboard' });
   };
 
-  const handleLogin = () => {
-    setIsLoggedIn(true);
-    navigate({ type: 'dashboard' });
+  const handleLogout = async () => {
+    try {
+      await apiLogout();
+    } catch (error) {
+      console.error('Failed to end employer session', error);
+    } finally {
+      setSession(null);
+      setCurrentScreen({ type: 'login' });
+    }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    navigate({ type: 'login' });
-  };
+  if (isInitializing && !isCandidateScreen(currentScreen)) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-600">
+        Checking session…
+      </div>
+    );
+  }
 
   if (currentScreen.type === 'login') {
-    return <LoginScreen onLogin={handleLogin} />;
+    return <LoginScreen onAuthenticated={handleLogin} />;
   }
 
   if (currentScreen.type === 'candidate-entry') {
@@ -100,7 +175,7 @@ export default function App() {
         <header className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="md:hidden tracking-tight">assess</h1>
-            <span className="text-gray-500 hidden md:inline">Acme Corp</span>
+            <span className="text-gray-500 hidden md:inline">{session?.name ?? 'Employer'}</span>
           </div>
           <div className="flex items-center gap-4">
             <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
