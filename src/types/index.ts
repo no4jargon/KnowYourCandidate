@@ -12,15 +12,11 @@ export interface HiringTask {
   has_interview_script: boolean;
   aptitude_test_id?: string;
   domain_test_id?: string;
+  interview_script_id?: string;
   llm_model?: string | null;
   llm_response_id?: string | null;
   metadata?: Record<string, unknown>;
-  stats: {
-    aptitude_candidates: number;
-    aptitude_avg_score: number;
-    domain_candidates: number;
-    domain_avg_score: number;
-  };
+  stats: HiringTaskStats;
 }
 
 export interface JDFacets {
@@ -108,6 +104,25 @@ export interface InterviewScript {
   hiring_task_id: string;
   script: InterviewQuestion[];
   created_at: string;
+}
+
+export interface HiringTaskStats {
+  aptitude: TestStatsSummary;
+  domain: TestStatsSummary;
+  interview: InterviewStatsSummary;
+}
+
+export interface TestStatsSummary {
+  test_id: string | null;
+  attempts: number;
+  average_score: number;
+  last_attempt_at: string | null;
+}
+
+export interface InterviewStatsSummary {
+  script_id: string | null;
+  completed: number;
+  last_completed_at: string | null;
 }
 
 export interface InterviewQuestion {

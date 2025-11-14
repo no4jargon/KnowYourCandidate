@@ -1,7 +1,7 @@
 const https = require('https');
 const { URL } = require('url');
 
-function callOpenAI(jobDescriptionRaw, metadata = {}) {
+function callOpenAIWithSchema({ messages, schema }) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.OPENAI_API_KEY;
     const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
@@ -12,27 +12,12 @@ function callOpenAI(jobDescriptionRaw, metadata = {}) {
     const url = new URL('/responses', baseUrl);
     const payload = JSON.stringify({
       model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-      input: [
-        {
-          role: 'system',
-          content:
-            'You are a system that extracts structured hiring facets from job descriptions. Return a JSON object that conforms to the provided schema.'
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `Extract JD facets for the following job description. Return JSON only.\n${jobDescriptionRaw}`
-            }
-          ]
-        }
-      ],
+      input: messages,
       response_format: {
         type: 'json_schema',
         json_schema: {
-          name: 'jd_facets',
-          schema: metadata.schema
+          name: schema.name || 'structured_output',
+          schema: schema.schema || schema
         }
       }
     });
@@ -62,7 +47,7 @@ function callOpenAI(jobDescriptionRaw, metadata = {}) {
           resolve({
             model: parsed.model,
             response_id: parsed.id,
-            facets: JSON.parse(content)
+            payload: JSON.parse(content)
           });
         } catch (error) {
           reject(error);
@@ -73,6 +58,28 @@ function callOpenAI(jobDescriptionRaw, metadata = {}) {
     req.on('error', reject);
     req.write(payload);
     req.end();
+  });
+}
+
+function callOpenAI(jobDescriptionRaw, metadata = {}) {
+  return callOpenAIWithSchema({
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are a system that extracts structured hiring facets from job descriptions. Return a JSON object that conforms to the provided schema.'
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `Extract JD facets for the following job description. Return JSON only.\n${jobDescriptionRaw}`
+          }
+        ]
+      }
+    ],
+    schema: metadata.schema
   });
 }
 
@@ -164,7 +171,12 @@ async function generateFacets(jobDescriptionRaw, metadata = {}) {
     if (!schema) {
       throw new Error('Schema metadata is required for LLM call');
     }
-    return await callOpenAI(jobDescriptionRaw, metadata);
+    const response = await callOpenAI(jobDescriptionRaw, metadata);
+    return {
+      model: response.model,
+      response_id: response.response_id,
+      facets: response.payload
+    };
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       return fallbackFacets(jobDescriptionRaw, metadata.context);
@@ -175,5 +187,6 @@ async function generateFacets(jobDescriptionRaw, metadata = {}) {
 
 module.exports = {
   generateFacets,
-  fallbackFacets
+  fallbackFacets,
+  callOpenAIWithSchema
 };
