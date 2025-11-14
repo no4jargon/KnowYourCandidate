@@ -5,5 +5,9 @@
 
   Run `npm i` to install the dependencies.
 
-  Run `npm run dev` to start the development server.
+  Run `npm run server` in one terminal to start the authentication API (defaults to port `4000`).
+
+  Run `npm run dev` in another terminal to start the Vite development server.
+
+  The seeded employer account uses `employer@acme.com` with the password `password123`.
   
