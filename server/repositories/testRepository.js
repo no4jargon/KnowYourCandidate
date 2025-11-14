@@ -63,6 +63,12 @@ function getTestByPublicId(publicId) {
   return parseTestRow(row);
 }
 
+function getTestByTaskAndKind(hiringTaskId, kind) {
+  const stmt = db.prepare('SELECT * FROM tests WHERE hiring_task_id = ? AND kind = ?');
+  const row = stmt.get(hiringTaskId, kind);
+  return parseTestRow(row);
+}
+
 function listTestsByHiringTask(hiringTaskId) {
   const stmt = db.prepare(
     'SELECT * FROM tests WHERE hiring_task_id = ? ORDER BY datetime(created_at) DESC'
@@ -122,6 +128,7 @@ module.exports = {
   createTest,
   getTestById,
   getTestByPublicId,
+  getTestByTaskAndKind,
   listTestsByHiringTask,
   updateTest,
   deleteTest

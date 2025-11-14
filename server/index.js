@@ -8,12 +8,30 @@ const {
   createTask,
   listTasks,
   getTaskById,
-  getActivityFeed
+  getActivityFeed,
+  updateTask
 } = require('./repositories/hiringTaskRepository');
+const {
+  createTest,
+  getTestById,
+  getTestByPublicId,
+  getTestByTaskAndKind,
+  updateTest
+} = require('./repositories/testRepository');
+const {
+  createInterviewScript,
+  getInterviewScriptById,
+  updateInterviewScript
+} = require('./repositories/interviewScriptRepository');
 const {
   generateAndValidateFacets,
   JDFacetsSchema
 } = require('./services/facetService');
+const { generateTest, validateTestUpdate } = require('./services/testGenerationService');
+const {
+  generateInterviewScript,
+  validateInterviewScriptUpdate
+} = require('./services/interviewScriptService');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -221,6 +239,46 @@ const PaginationQuerySchema = z.object({
   employerId: z.string().optional()
 });
 
+const GenerateTestPayloadSchema = z
+  .object({
+    instructions: z.string().max(2000).optional(),
+    difficulty: z.enum(['easy', 'medium', 'hard']).optional()
+  })
+  .strict();
+
+const GenerateInterviewScriptPayloadSchema = z
+  .object({
+    instructions: z.string().max(2000).optional()
+  })
+  .strict();
+
+const UpdateTestPayloadSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    description: z.string().nullable().optional(),
+    difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+    sections: z.any().optional(),
+    metadata: z.record(z.any()).optional()
+  })
+  .strict()
+  .refine((value) => value.sections === undefined || Array.isArray(value.sections), {
+    message: 'Sections must be an array when provided',
+    path: ['sections']
+  });
+
+const UpdateInterviewScriptPayloadSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    description: z.string().optional(),
+    script: z.any().optional(),
+    metadata: z.record(z.any()).optional()
+  })
+  .strict()
+  .refine((value) => value.script === undefined || Array.isArray(value.script), {
+    message: 'Script must be an array when provided',
+    path: ['script']
+  });
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
@@ -305,6 +363,144 @@ app.post('/api/hiring-tasks', async (req, res, next) => {
   }
 });
 
+app.post('/api/hiring-tasks/:id/tests/:kind/generate', async (req, res, next) => {
+  try {
+    const kind = req.params.kind;
+    if (kind !== 'aptitude' && kind !== 'domain') {
+      res.status(400).json({ error: 'Unsupported test kind' });
+      return;
+    }
+
+    const payload = GenerateTestPayloadSchema.parse(req.body ?? {});
+    const task = getTaskById(req.params.id);
+    if (!task) {
+      res.status(404).json({ error: 'Hiring task not found' });
+      return;
+    }
+
+    const { test, metadata, model, responseId } = await generateTest({
+      kind,
+      facets: task.job_description_facets,
+      jobDescription: task.job_description_raw,
+      instructions: payload.instructions || '',
+      difficulty: payload.difficulty || 'medium'
+    });
+
+    const existing = getTestByTaskAndKind(task.id, kind);
+    const testMetadata = {
+      ...metadata,
+      response_id: responseId
+    };
+
+    let saved;
+    if (existing) {
+      saved = updateTest(existing.id, {
+        title: test.title,
+        description: test.description ?? null,
+        difficulty: test.difficulty,
+        sections: test.sections,
+        metadata: testMetadata
+      });
+    } else {
+      saved = createTest({
+        hiring_task_id: task.id,
+        kind,
+        title: test.title,
+        description: test.description ?? null,
+        difficulty: test.difficulty,
+        sections: test.sections,
+        metadata: testMetadata
+      });
+    }
+
+    const statsKey = kind === 'aptitude' ? 'aptitude' : 'domain';
+    const hasKey = kind === 'aptitude' ? 'has_aptitude_test' : 'has_domain_test';
+    const idKey = kind === 'aptitude' ? 'aptitude_test_id' : 'domain_test_id';
+
+    const updatedStats = {
+      ...task.stats,
+      [statsKey]: {
+        ...(task.stats?.[statsKey] || {}),
+        test_id: saved.id
+      }
+    };
+
+    const updatedTask = updateTask(task.id, {
+      [hasKey]: true,
+      [idKey]: saved.id,
+      stats: updatedStats
+    });
+
+    res.status(existing ? 200 : 201).json({
+      data: saved,
+      task: updatedTask,
+      llm: { model, responseId }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/hiring-tasks/:id/interview-script/generate', async (req, res, next) => {
+  try {
+    const payload = GenerateInterviewScriptPayloadSchema.parse(req.body ?? {});
+    const task = getTaskById(req.params.id);
+    if (!task) {
+      res.status(404).json({ error: 'Hiring task not found' });
+      return;
+    }
+
+    const { script, metadata, model, responseId } = await generateInterviewScript({
+      facets: task.job_description_facets,
+      jobDescription: task.job_description_raw,
+      instructions: payload.instructions || ''
+    });
+
+    const scriptMetadata = {
+      ...metadata,
+      response_id: responseId
+    };
+
+    let saved;
+    if (task.interview_script_id) {
+      saved = updateInterviewScript(task.interview_script_id, {
+        title: script.title,
+        description: script.description ?? null,
+        script: script.script,
+        metadata: scriptMetadata
+      });
+    } else {
+      saved = createInterviewScript({
+        hiring_task_id: task.id,
+        title: script.title,
+        description: script.description ?? null,
+        script: script.script,
+        metadata: scriptMetadata
+      });
+    }
+
+    const updatedTask = updateTask(task.id, {
+      has_interview_script: true,
+      interview_script_id: saved.id,
+      stats: {
+        ...task.stats,
+        interview: {
+          ...(task.stats?.interview || {}),
+          script_id: saved.id
+        }
+      }
+    });
+
+    res.status(task.interview_script_id ? 200 : 201).json({
+      data: saved,
+      task: updatedTask,
+      llm: { model, responseId }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/hiring-tasks', (req, res, next) => {
   try {
     const { page, pageSize, employerId } = PaginationQuerySchema.parse(req.query);
@@ -344,6 +540,83 @@ app.get('/api/hiring-tasks/:id', (req, res, next) => {
       return;
     }
     res.json({ data: task });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/tests/:id', (req, res, next) => {
+  try {
+    const test = getTestById(req.params.id);
+    if (!test) {
+      res.status(404).json({ error: 'Test not found' });
+      return;
+    }
+    res.json({ data: test });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/tests/public/:publicId', (req, res, next) => {
+  try {
+    const test = getTestByPublicId(req.params.publicId);
+    if (!test) {
+      res.status(404).json({ error: 'Test not found' });
+      return;
+    }
+    res.json({ data: test });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/tests/:id', (req, res, next) => {
+  try {
+    const existing = getTestById(req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: 'Test not found' });
+      return;
+    }
+
+    const payload = UpdateTestPayloadSchema.parse(req.body ?? {});
+    const normalized = validateTestUpdate(payload);
+    const saved = updateTest(req.params.id, normalized);
+    res.json({ data: saved });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/interview-scripts/:id', (req, res, next) => {
+  try {
+    const script = getInterviewScriptById(req.params.id);
+    if (!script) {
+      res.status(404).json({ error: 'Interview script not found' });
+      return;
+    }
+    res.json({ data: script });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/interview-scripts/:id', (req, res, next) => {
+  try {
+    const existing = getInterviewScriptById(req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: 'Interview script not found' });
+      return;
+    }
+
+    const payload = UpdateInterviewScriptPayloadSchema.parse(req.body ?? {});
+    const { metadata, ...content } = payload;
+    const validatedContent = validateInterviewScriptUpdate(content);
+    const saved = updateInterviewScript(req.params.id, {
+      ...validatedContent,
+      ...(metadata ? { metadata } : {})
+    });
+    res.json({ data: saved });
   } catch (error) {
     next(error);
   }

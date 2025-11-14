@@ -146,6 +146,52 @@ function createTask(task) {
   });
 }
 
+function updateTask(id, updates = {}) {
+  const fields = [];
+  const params = { id };
+
+  if (Object.prototype.hasOwnProperty.call(updates, 'has_aptitude_test')) {
+    fields.push('has_aptitude_test = @has_aptitude_test');
+    params.has_aptitude_test = updates.has_aptitude_test ? 1 : 0;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'has_domain_test')) {
+    fields.push('has_domain_test = @has_domain_test');
+    params.has_domain_test = updates.has_domain_test ? 1 : 0;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'has_interview_script')) {
+    fields.push('has_interview_script = @has_interview_script');
+    params.has_interview_script = updates.has_interview_script ? 1 : 0;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'aptitude_test_id')) {
+    fields.push('aptitude_test_id = @aptitude_test_id');
+    params.aptitude_test_id = updates.aptitude_test_id || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'domain_test_id')) {
+    fields.push('domain_test_id = @domain_test_id');
+    params.domain_test_id = updates.domain_test_id || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'interview_script_id')) {
+    fields.push('interview_script_id = @interview_script_id');
+    params.interview_script_id = updates.interview_script_id || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'stats')) {
+    fields.push('stats = @stats');
+    params.stats = JSON.stringify(updates.stats || {});
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'metadata')) {
+    fields.push('metadata = @metadata');
+    params.metadata = JSON.stringify(updates.metadata || {});
+  }
+
+  if (!fields.length) {
+    return getTaskById(id);
+  }
+
+  const stmt = db.prepare(`UPDATE hiring_tasks SET ${fields.join(', ')} WHERE id = @id`);
+  stmt.run(params);
+  return getTaskById(id);
+}
+
 function getTaskById(id) {
   const stmt = db.prepare('SELECT * FROM hiring_tasks WHERE id = ?');
   const row = stmt.get(id);
@@ -236,5 +282,7 @@ module.exports = {
   createTask,
   getTaskById,
   listTasks,
-  getActivityFeed
+  getActivityFeed,
+  updateTask,
+  buildInitialStats
 };
