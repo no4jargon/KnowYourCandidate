@@ -1,0 +1,9 @@
+[
+  {
+    "id": "emp-1",
+    "email": "employer@acme.com",
+    "name": "Acme Corp",
+    "passwordSalt": "9c6a4654dadcb7c3acfa9260f3723c62",
+    "passwordHash": "db5bd5db4e8420ea09dc42b0101768a35373c09c1e3261b9bd9d4284efb294b043b037d6efb8f7fbfb7279d104a66c18a8089646d0bb93022477780abcbd4c59"
+  }
+]
