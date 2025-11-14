@@ -60,6 +60,15 @@ app.use(
   })
 );
 app.use(express.json({ limit: '2mb' }));
+function setCorsHeaders(req, res) {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+}
 
 function parseCookies(cookieHeader = '') {
   return cookieHeader.split(';').reduce((acc, cookie) => {
@@ -111,6 +120,38 @@ function verifyToken(token) {
   } catch (error) {
     return null;
   }
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > 1e6) {
+        reject(new Error('Payload too large'));
+        req.connection.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (!data) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(data));
+      } catch (error) {
+        reject(new Error('Invalid JSON body'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function sendJson(res, statusCode, payload) {
+  const body = JSON.stringify(payload);
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(body);
 }
 
 function sanitizeEmployer(employer) {
