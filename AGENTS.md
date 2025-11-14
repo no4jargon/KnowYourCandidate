@@ -64,10 +64,10 @@ This document is the authoritative reference for the "Assess" product design. Ev
   - Voice Capture: separate module for STT + conversational follow-up.
 - **Modules:** auth, hiring-tasks, tests, test-runner (public candidate flow), interviews, jd-voice-capture. Each module owns its routes, services, validation to isolate errors.
 
-## 11. Phased Delivery Plan
-1. **Phase 1 (MVP Core):** auth, hiring task creation (text JD), JD facets extraction, aptitude test generation, public candidate flow & scoring for aptitude test, dashboard stats.
-2. **Phase 2:** domain test generation & candidate flow, text answer LLM grading, interview script generation UI.
-3. **Phase 3:** JD voice capture module, leaderboards, advanced filtering, UX polish.
+## 11. Priorities
+1. auth, hiring task creation (text JD), JD facets extraction, aptitude test generation, public candidate flow & scoring for aptitude test, dashboard stats.
+2. domain test generation & candidate flow, text answer LLM grading, interview script generation UI.
+3. JD voice capture module, leaderboards, advanced filtering, UX polish.
 
 ---
 
