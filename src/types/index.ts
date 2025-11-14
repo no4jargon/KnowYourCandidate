@@ -4,6 +4,7 @@ export interface HiringTask {
   title: string;
   location: string;
   created_at: string;
+  updated_at?: string;
   job_description_raw: string;
   job_description_facets: JDFacets;
   has_aptitude_test: boolean;
@@ -11,6 +12,9 @@ export interface HiringTask {
   has_interview_script: boolean;
   aptitude_test_id?: string;
   domain_test_id?: string;
+  llm_model?: string | null;
+  llm_response_id?: string | null;
+  metadata?: Record<string, unknown>;
   stats: {
     aptitude_candidates: number;
     aptitude_avg_score: number;

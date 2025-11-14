@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Input } from './ui/input';
-import { mockHiringTasks, mockCandidateResults, mockTests, mockInterviewScript } from '../data/mockData';
+import { mockCandidateResults, mockTests, mockInterviewScript } from '../data/mockData';
 import { Screen } from '../App';
 import { ArrowLeft, Copy, FileText, Check } from 'lucide-react';
-import { CandidateResult } from '../types';
+import { CandidateResult, HiringTask } from '../types';
+import { getHiringTask } from '../api/hiringTasks';
 
 interface HiringTaskDetailScreenProps {
   taskId: string;
@@ -14,12 +15,64 @@ interface HiringTaskDetailScreenProps {
 }
 
 export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailScreenProps) {
-  const task = mockHiringTasks.find((t) => t.id === taskId);
+  const [task, setTask] = useState<HiringTask | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const candidateResults = mockCandidateResults[taskId] || [];
   const [editingScores, setEditingScores] = useState<{ [key: string]: CandidateResult }>(
     Object.fromEntries(candidateResults.map((c) => [c.candidate_name, { ...c }]))
   );
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEditingScores(
+      Object.fromEntries(candidateResults.map((c) => [c.candidate_name, { ...c }]))
+    );
+  }, [candidateResults]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+    getHiringTask(taskId)
+      .then((response) => {
+        if (!cancelled) {
+          setTask(response);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Unable to load task');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  if (isLoading) {
+    return <div className="p-8">Loading task details…</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-8 text-red-600">
+        <button
+          onClick={() => onNavigate({ type: 'dashboard' })}
+          className="mb-4 underline"
+        >
+          Back to Dashboard
+        </button>
+        {error}
+      </div>
+    );
+  }
 
   if (!task) {
     return <div className="p-8">Task not found</div>;

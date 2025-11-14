@@ -1,14 +1,80 @@
+import { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { mockHiringTasks, mockLiveFeed } from '../data/mockData';
 import { Screen } from '../App';
 import { CheckCircle2, XCircle } from 'lucide-react';
+import { getActivityFeed, listHiringTasks } from '../api/hiringTasks';
+import { HiringTask, LiveFeedItem } from '../types';
 
 interface EmployerDashboardProps {
   onNavigate: (screen: Screen) => void;
 }
 
 export function EmployerDashboard({ onNavigate }: EmployerDashboardProps) {
+  const [tasks, setTasks] = useState<HiringTask[]>([]);
+  const [activity, setActivity] = useState<LiveFeedItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listHiringTasks({ page, pageSize })
+      .then((response) => {
+        if (cancelled) return;
+        setTasks(response.data);
+        setTotalPages(response.pagination.totalPages || 1);
+        setTotalCount(response.pagination.total);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Unable to load hiring tasks');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [page, pageSize]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setActivityLoading(true);
+    getActivityFeed()
+      .then((items) => {
+        if (!cancelled) {
+          setActivity(items);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setActivity([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setActivityLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tasks]);
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-IN', {
       day: 'numeric',
@@ -55,97 +121,140 @@ export function EmployerDashboard({ onNavigate }: EmployerDashboardProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {mockHiringTasks.map((task) => (
-                    <tr
-                      key={task.id}
-                      onClick={() => onNavigate({ type: 'task-detail', taskId: task.id })}
-                      className="hover:bg-gray-50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-6 py-4">
-                        <div>
-                          <div className="text-gray-900">{task.title}</div>
-                          <div className="text-gray-500">{task.location}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-gray-600">
-                        {formatDate(task.created_at)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-2">
-                          <Badge
-                            variant={task.has_aptitude_test ? 'default' : 'secondary'}
-                            className="gap-1"
-                          >
-                            {task.has_aptitude_test ? (
-                              <CheckCircle2 className="w-3 h-3" />
-                            ) : (
-                              <XCircle className="w-3 h-3" />
-                            )}
-                            Aptitude
-                          </Badge>
-                          <Badge
-                            variant={task.has_domain_test ? 'default' : 'secondary'}
-                            className="gap-1"
-                          >
-                            {task.has_domain_test ? (
-                              <CheckCircle2 className="w-3 h-3" />
-                            ) : (
-                              <XCircle className="w-3 h-3" />
-                            )}
-                            Domain
-                          </Badge>
-                          <Badge
-                            variant={task.has_interview_script ? 'default' : 'secondary'}
-                            className="gap-1"
-                          >
-                            {task.has_interview_script ? (
-                              <CheckCircle2 className="w-3 h-3" />
-                            ) : (
-                              <XCircle className="w-3 h-3" />
-                            )}
-                            Interview
-                          </Badge>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        {task.has_aptitude_test ? (
-                          <div>
-                            <div className="text-gray-900">
-                              {task.stats.aptitude_candidates} candidates
-                            </div>
-                            <div className="text-gray-500">
-                              Avg: {task.stats.aptitude_avg_score.toFixed(1)}/20
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        {task.has_domain_test ? (
-                          <div>
-                            <div className="text-gray-900">
-                              {task.stats.domain_candidates} candidates
-                            </div>
-                            <div className="text-gray-500">
-                              Avg: {task.stats.domain_avg_score.toFixed(1)}/20
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        {task.has_interview_script ? (
-                          <span className="text-gray-600">Available</span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
+                  {loading ? (
+                    <tr>
+                      <td className="px-6 py-6 text-center text-gray-500" colSpan={6}>
+                        Loading tasks...
                       </td>
                     </tr>
-                  ))}
+                  ) : error ? (
+                    <tr>
+                      <td className="px-6 py-6 text-center text-red-600" colSpan={6}>
+                        {error}
+                      </td>
+                    </tr>
+                  ) : tasks.length === 0 ? (
+                    <tr>
+                      <td className="px-6 py-6 text-center text-gray-500" colSpan={6}>
+                        No hiring tasks yet. Create one to get started.
+                      </td>
+                    </tr>
+                  ) : (
+                    tasks.map((task) => (
+                      <tr
+                        key={task.id}
+                        onClick={() => onNavigate({ type: 'task-detail', taskId: task.id })}
+                        className="hover:bg-gray-50 cursor-pointer transition-colors"
+                      >
+                        <td className="px-6 py-4">
+                          <div>
+                            <div className="text-gray-900">{task.title}</div>
+                            <div className="text-gray-500">{task.location}</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-gray-600">
+                          {formatDate(task.created_at)}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex gap-2">
+                            <Badge
+                              variant={task.has_aptitude_test ? 'default' : 'secondary'}
+                              className="gap-1"
+                            >
+                              {task.has_aptitude_test ? (
+                                <CheckCircle2 className="w-3 h-3" />
+                              ) : (
+                                <XCircle className="w-3 h-3" />
+                              )}
+                              Aptitude
+                            </Badge>
+                            <Badge
+                              variant={task.has_domain_test ? 'default' : 'secondary'}
+                              className="gap-1"
+                            >
+                              {task.has_domain_test ? (
+                                <CheckCircle2 className="w-3 h-3" />
+                              ) : (
+                                <XCircle className="w-3 h-3" />
+                              )}
+                              Domain
+                            </Badge>
+                            <Badge
+                              variant={task.has_interview_script ? 'default' : 'secondary'}
+                              className="gap-1"
+                            >
+                              {task.has_interview_script ? (
+                                <CheckCircle2 className="w-3 h-3" />
+                              ) : (
+                                <XCircle className="w-3 h-3" />
+                              )}
+                              Interview
+                            </Badge>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {task.has_aptitude_test ? (
+                            <div>
+                              <div className="text-gray-900">
+                                {task.stats.aptitude_candidates} candidates
+                              </div>
+                              <div className="text-gray-500">
+                                Avg: {task.stats.aptitude_avg_score.toFixed(1)}/20
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          {task.has_domain_test ? (
+                            <div>
+                              <div className="text-gray-900">
+                                {task.stats.domain_candidates} candidates
+                              </div>
+                              <div className="text-gray-500">
+                                Avg: {task.stats.domain_avg_score.toFixed(1)}/20
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          {task.has_interview_script ? (
+                            <span className="text-gray-600">Available</span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
+            </div>
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 text-sm text-gray-600">
+              <div>
+                Showing page {page} of {totalPages} · {totalCount} tasks
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page === 1 || loading}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  disabled={page >= totalPages || loading}
+                >
+                  Next
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -158,14 +267,18 @@ export function EmployerDashboard({ onNavigate }: EmployerDashboardProps) {
           <p className="text-gray-500">Recent candidate actions</p>
         </div>
         <div className="flex-1 overflow-auto p-4 md:p-6 space-y-4">
-          {mockLiveFeed.map((item, index) => (
-            <div key={index} className="pb-4 border-b border-gray-100 last:border-0">
-              <div className="text-gray-500 mb-1">
-                {formatTime(item.timestamp)}
+          {activityLoading ? (
+            <div className="text-gray-500">Loading activity…</div>
+          ) : activity.length === 0 ? (
+            <div className="text-gray-500">No recent activity.</div>
+          ) : (
+            activity.map((item, index) => (
+              <div key={index} className="pb-4 border-b border-gray-100 last:border-0">
+                <div className="text-gray-500 mb-1">{formatTime(item.timestamp)}</div>
+                <div className="text-gray-900">{item.message}</div>
               </div>
-              <div className="text-gray-900">{item.message}</div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>
