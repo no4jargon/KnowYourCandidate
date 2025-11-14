@@ -5,6 +5,8 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Screen } from '../App';
 import { ArrowLeft, Mic } from 'lucide-react';
+import { createHiringTask, formatFacets } from '../api/hiringTasks';
+import { HiringTask, JDFacets } from '../types';
 
 interface CreateHiringTaskScreenProps {
   onNavigate: (screen: Screen) => void;
@@ -14,31 +16,32 @@ export function CreateHiringTaskScreen({ onNavigate }: CreateHiringTaskScreenPro
   const [jobTitle, setJobTitle] = useState('');
   const [location, setLocation] = useState('');
   const [jobDescription, setJobDescription] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [generatedFacets, setGeneratedFacets] = useState<JDFacets | null>(null);
+  const [createdTask, setCreatedTask] = useState<HiringTask | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real app, this would create the task
-    alert('Task creation would happen here. Redirecting to dashboard...');
-    onNavigate({ type: 'dashboard' });
-  };
+    setIsSubmitting(true);
+    setError(null);
+    setGeneratedFacets(null);
 
-  const exampleFacets = `{
-  "role_title": "Backend Engineer",
-  "seniority": "mid-level",
-  "department": "engineering",
-  "location": "Mumbai, India",
-  "work_type": "hybrid",
-  "must_have_skills": ["python", "sql", "distributed systems"],
-  "nice_to_have_skills": ["aws", "kubernetes"],
-  "tools_and_tech": ["django", "postgresql"],
-  "domain_industry": "fintech",
-  "region_context": "india",
-  "language_requirements": ["english"],
-  "typical_tasks": ["design and implement apis", "optimize database queries"],
-  "data_intensity": "high",
-  "communication_intensity": "high",
-  "math_data_intensity": "medium"
-}`;
+    try {
+      const task = await createHiringTask({
+        title: jobTitle,
+        location,
+        jobDescriptionRaw: jobDescription
+      });
+      setCreatedTask(task);
+      setGeneratedFacets(task.job_description_facets);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to create hiring task';
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -57,6 +60,16 @@ export function CreateHiringTaskScreen({ onNavigate }: CreateHiringTaskScreenPro
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
+          {error && (
+            <div className="border border-red-200 bg-red-50 text-red-700 rounded p-3">
+              {error}
+            </div>
+          )}
+          {createdTask && !error && (
+            <div className="border border-green-200 bg-green-50 text-green-700 rounded p-3">
+              Hiring task created successfully.
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="jobTitle">Job Title</Label>
             <Input
@@ -65,6 +78,7 @@ export function CreateHiringTaskScreen({ onNavigate }: CreateHiringTaskScreenPro
               value={jobTitle}
               onChange={(e) => setJobTitle(e.target.value)}
               required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -76,6 +90,7 @@ export function CreateHiringTaskScreen({ onNavigate }: CreateHiringTaskScreenPro
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -88,18 +103,34 @@ export function CreateHiringTaskScreen({ onNavigate }: CreateHiringTaskScreenPro
               onChange={(e) => setJobDescription(e.target.value)}
               rows={12}
               required
+              disabled={isSubmitting}
             />
           </div>
 
           <div className="flex gap-3">
-            <Button type="submit">
-              Generate JD Facets and Save Task
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Generating...' : 'Generate JD Facets and Save Task'}
             </Button>
             <Button type="button" variant="outline" className="gap-2" disabled>
               <Mic className="w-4 h-4" />
               Help me fill these fields (voice)
             </Button>
           </div>
+
+          {createdTask && (
+            <div className="flex gap-3">
+              <Button type="button" variant="outline" onClick={() => onNavigate({ type: 'task-detail', taskId: createdTask.id })}>
+                View Task Details
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => onNavigate({ type: 'dashboard' })}
+              >
+                Back to Dashboard
+              </Button>
+            </div>
+          )}
 
           <div className="pt-4 border-t border-gray-200">
             <p className="text-gray-500 mb-2">
@@ -115,7 +146,9 @@ export function CreateHiringTaskScreen({ onNavigate }: CreateHiringTaskScreenPro
           </div>
           <div className="bg-gray-50 rounded border border-gray-200 p-4 overflow-x-auto">
             <pre className="text-gray-700" style={{ fontFamily: 'monospace' }}>
-              {exampleFacets}
+              {generatedFacets
+                ? formatFacets(generatedFacets)
+                : 'Submit the job description to generate structured facets.'}
             </pre>
           </div>
         </div>
