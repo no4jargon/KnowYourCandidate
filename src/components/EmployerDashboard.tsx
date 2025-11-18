@@ -196,10 +196,11 @@ export function EmployerDashboard({ onNavigate }: EmployerDashboardProps) {
                           {task.has_aptitude_test ? (
                             <div>
                               <div className="text-gray-900">
-                                {task.stats.aptitude_candidates} candidates
+                                {(task.stats.aptitude?.attempts ?? 0)} candidates
                               </div>
                               <div className="text-gray-500">
-                                Avg: {task.stats.aptitude_avg_score.toFixed(1)}/20
+                                Avg:{' '}
+                                {Number(task.stats.aptitude?.average_score ?? 0).toFixed(1)}/20
                               </div>
                             </div>
                           ) : (
@@ -210,10 +211,11 @@ export function EmployerDashboard({ onNavigate }: EmployerDashboardProps) {
                           {task.has_domain_test ? (
                             <div>
                               <div className="text-gray-900">
-                                {task.stats.domain_candidates} candidates
+                                {(task.stats.domain?.attempts ?? 0)} candidates
                               </div>
                               <div className="text-gray-500">
-                                Avg: {task.stats.domain_avg_score.toFixed(1)}/20
+                                Avg:{' '}
+                                {Number(task.stats.domain?.average_score ?? 0).toFixed(1)}/20
                               </div>
                             </div>
                           ) : (
