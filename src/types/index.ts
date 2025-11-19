@@ -41,13 +41,16 @@ export interface Test {
   id: string;
   public_id: string;
   hiring_task_id: string;
-  type: 'aptitude' | 'domain';
+  kind: 'aptitude' | 'domain';
+  title: string;
+  description?: string | null;
   difficulty: 'easy' | 'medium' | 'hard';
   sections: TestSection[];
   metadata: {
-    version: number;
-    generated_at: string;
-    source_model: string;
+    version?: number;
+    generated_at?: string;
+    source_model?: string;
+    [key: string]: unknown;
   };
 }
 
@@ -71,28 +74,33 @@ export interface Question {
 }
 
 export interface CandidateAttempt {
-  attempt_id: string;
+  id: string;
   test_id: string;
   hiring_task_id: string;
   candidate_name: string;
+  candidate_email: string | null;
   started_at: string;
   submitted_at: string | null;
-  answers: Answer[];
-  total_score: number;
-  max_score: number;
+  total_score: number | null;
+  max_score: number | null;
+  metadata?: Record<string, unknown> | null;
 }
 
-export interface Answer {
+export interface CandidateResponse {
+  id?: string;
+  attempt_id: string;
   question_id: string;
-  raw_answer: string | number;
-  normalized_answer: string | number;
-  score: number;
+  raw_answer: string | number | null;
+  normalized_answer: string | number | null;
+  score: number | null;
 }
 
 export interface CandidateResult {
   candidate_name: string;
+  aptitude_attempt_id?: string | null;
   aptitude_taken_at: string | null;
   aptitude_score: number;
+  domain_attempt_id?: string | null;
   domain_taken_at: string | null;
   domain_score: number;
   interview_score: number;

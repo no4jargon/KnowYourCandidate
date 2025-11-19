@@ -3,11 +3,16 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Input } from './ui/input';
-import { mockCandidateResults, mockTests, mockInterviewScript } from '../data/mockData';
+import { mockInterviewScript } from '../data/mockData';
 import { Screen } from '../App';
 import { ArrowLeft, Copy, FileText, Check } from 'lucide-react';
-import { CandidateResult, HiringTask } from '../types';
-import { getHiringTask } from '../api/hiringTasks';
+import { CandidateResult, HiringTask, Test } from '../types';
+import {
+  getHiringTask,
+  getCandidateResults,
+  updateCandidateResult
+} from '../api/hiringTasks';
+import { generateTestArtifact, getTest } from '../api/tests';
 
 interface HiringTaskDetailScreenProps {
   taskId: string;
@@ -18,11 +23,18 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
   const [task, setTask] = useState<HiringTask | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const candidateResults = mockCandidateResults[taskId] || [];
-  const [editingScores, setEditingScores] = useState<{ [key: string]: CandidateResult }>(
-    Object.fromEntries(candidateResults.map((c) => [c.candidate_name, { ...c }]))
-  );
+  const [candidateResults, setCandidateResults] = useState<CandidateResult[]>([]);
+  const [candidateLoading, setCandidateLoading] = useState(true);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
+  const [editingScores, setEditingScores] = useState<{ [key: string]: CandidateResult }>({});
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [tests, setTests] = useState<{ aptitude?: Test; domain?: Test }>({});
+  const [testsLoading, setTestsLoading] = useState(false);
+  const [testsError, setTestsError] = useState<string | null>(null);
+  const [generatingTest, setGeneratingTest] = useState<'aptitude' | 'domain' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [scoreError, setScoreError] = useState<string | null>(null);
+  const [savingField, setSavingField] = useState<string | null>(null);
 
   useEffect(() => {
     setEditingScores(
@@ -55,6 +67,89 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
       cancelled = true;
     };
   }, [taskId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCandidateLoading(true);
+    setCandidateError(null);
+    getCandidateResults(taskId)
+      .then((results) => {
+        if (!cancelled) {
+          setCandidateResults(results);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setCandidateError(err instanceof Error ? err.message : 'Unable to load results');
+          setCandidateResults([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCandidateLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  useEffect(() => {
+    if (!task) {
+      setTests({});
+      return;
+    }
+
+    const shouldFetch = Boolean(task.aptitude_test_id || task.domain_test_id);
+    if (!shouldFetch) {
+      setTests({});
+      return;
+    }
+
+    let cancelled = false;
+    setTestsLoading(true);
+    setTestsError(null);
+
+    const requests: Promise<{ kind: 'aptitude' | 'domain'; test: Test }>[] = [];
+    if (task.aptitude_test_id) {
+      requests.push(
+        getTest(task.aptitude_test_id).then((fetched) => ({ kind: 'aptitude' as const, test: fetched }))
+      );
+    }
+    if (task.domain_test_id) {
+      requests.push(
+        getTest(task.domain_test_id).then((fetched) => ({ kind: 'domain' as const, test: fetched }))
+      );
+    }
+
+    Promise.all(requests)
+      .then((fetched) => {
+        if (cancelled) {
+          return;
+        }
+        const next: { aptitude?: Test; domain?: Test } = {};
+        for (const item of fetched) {
+          next[item.kind] = item.test;
+        }
+        setTests(next);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setTestsError(err instanceof Error ? err.message : 'Unable to load tests');
+          setTests({});
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setTestsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [task?.aptitude_test_id, task?.domain_test_id]);
 
   if (isLoading) {
     return <div className="p-8">Loading task details…</div>;
@@ -97,26 +192,124 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
   };
 
   const handleScoreChange = (candidateName: string, field: keyof CandidateResult, value: number) => {
+    const clampedValue = Number.isFinite(value) ? Math.max(0, Math.min(20, value)) : 0;
     setEditingScores((prev) => ({
       ...prev,
       [candidateName]: {
         ...prev[candidateName],
-        [field]: value
+        [field]: clampedValue
       }
     }));
   };
 
   const handleCopyLink = (testType: 'aptitude' | 'domain') => {
-    const publicId = testType === 'aptitude' ? 'pub-apt-1' : 'pub-dom-1';
-    const link = `${window.location.origin}/t/${publicId}`;
+    const selectedTest = testType === 'aptitude' ? tests.aptitude : tests.domain;
+    if (!selectedTest) {
+      setActionError('Generate the test to create a shareable link.');
+      return;
+    }
+    const link = `${window.location.origin}/#/t/${selectedTest.public_id}`;
     navigator.clipboard.writeText(link);
+    setActionError(null);
     setCopiedLink(testType);
     setTimeout(() => setCopiedLink(null), 2000);
   };
 
-  const generateTest = (testType: 'aptitude' | 'domain') => {
-    alert(`Generating ${testType} test... This would call the AI service.`);
-    onNavigate({ type: 'dashboard' });
+  const handleGenerateTest = async (testType: 'aptitude' | 'domain') => {
+    if (!task) return;
+    setGeneratingTest(testType);
+    setActionError(null);
+    try {
+      const response = await generateTestArtifact(task.id, testType);
+      setTests((prev) => ({ ...prev, [testType]: response.test }));
+      setTask((prev) => {
+        if (response.task) {
+          return response.task;
+        }
+        if (!prev) {
+          return prev;
+        }
+        const next: HiringTask = {
+          ...prev,
+          ...(testType === 'aptitude'
+            ? { has_aptitude_test: true, aptitude_test_id: response.test.id }
+            : { has_domain_test: true, domain_test_id: response.test.id })
+        };
+        return next;
+      });
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : `Unable to generate ${testType} test right now.`
+      );
+    } finally {
+      setGeneratingTest(null);
+    }
+  };
+
+  const handleScoreSave = async (
+    candidateName: string,
+    field: 'aptitude_score' | 'domain_score' | 'interview_score'
+  ) => {
+    if (!task) {
+      return;
+    }
+    const entry = editingScores[candidateName];
+    if (!entry) {
+      return;
+    }
+
+    const payload: {
+      candidateName: string;
+      aptitudeAttemptId?: string;
+      aptitudeScore?: number;
+      domainAttemptId?: string;
+      domainScore?: number;
+      interviewScore?: number;
+    } = { candidateName };
+
+    if (field === 'aptitude_score') {
+      if (!entry.aptitude_attempt_id) {
+        setScoreError('No aptitude attempt found to update.');
+        return;
+      }
+      payload.aptitudeAttemptId = entry.aptitude_attempt_id;
+      payload.aptitudeScore = entry.aptitude_score;
+    } else if (field === 'domain_score') {
+      if (!entry.domain_attempt_id) {
+        setScoreError('No domain attempt found to update.');
+        return;
+      }
+      payload.domainAttemptId = entry.domain_attempt_id;
+      payload.domainScore = entry.domain_score;
+    } else {
+      payload.interviewScore = entry.interview_score;
+    }
+
+    setScoreError(null);
+    const fieldKey = `${candidateName}:${field}`;
+    setSavingField(fieldKey);
+    try {
+      const response = await updateCandidateResult(task.id, payload);
+      const updated = response.candidate;
+      setCandidateResults((prev) => {
+        const exists = prev.some((c) => c.candidate_name === updated.candidate_name);
+        if (exists) {
+          return prev.map((c) => (c.candidate_name === updated.candidate_name ? updated : c));
+        }
+        return [...prev, updated];
+      });
+      setEditingScores((prev) => ({
+        ...prev,
+        [updated.candidate_name]: updated
+      }));
+      if (response.task) {
+        setTask((prev) => (prev ? { ...prev, stats: response.task.stats } : prev));
+      }
+    } catch (err) {
+      setScoreError(err instanceof Error ? err.message : 'Unable to save score right now.');
+    } finally {
+      setSavingField(null);
+    }
   };
 
   // Calculate leaderboards
@@ -196,6 +389,16 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
       </div>
 
       {/* Test Cards */}
+      {actionError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {actionError}
+        </div>
+      )}
+      {testsError && !actionError && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {testsError}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         {/* Aptitude Test Card */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -214,8 +417,14 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
                 <Button
                   className="w-full"
                   onClick={() =>
-                    onNavigate({ type: 'test-editor', testId: 'test-apt-1', testType: 'aptitude' })
+                    task.aptitude_test_id &&
+                    onNavigate({
+                      type: 'test-editor',
+                      testId: task.aptitude_test_id,
+                      testType: 'aptitude'
+                    })
                   }
+                  disabled={!task.aptitude_test_id}
                 >
                   View and Edit
                 </Button>
@@ -223,6 +432,7 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
                   variant="outline"
                   className="w-full gap-2"
                   onClick={() => handleCopyLink('aptitude')}
+                  disabled={!tests.aptitude || testsLoading}
                 >
                   {copiedLink === 'aptitude' ? (
                     <>
@@ -232,14 +442,18 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
                   ) : (
                     <>
                       <Copy className="w-4 h-4" />
-                      Copy Candidate Link
+                      {testsLoading ? 'Preparing Link…' : 'Copy Candidate Link'}
                     </>
                   )}
                 </Button>
               </>
             ) : (
-              <Button className="w-full" onClick={() => generateTest('aptitude')}>
-                Generate Aptitude Test
+              <Button
+                className="w-full"
+                onClick={() => handleGenerateTest('aptitude')}
+                disabled={generatingTest === 'aptitude'}
+              >
+                {generatingTest === 'aptitude' ? 'Generating…' : 'Generate Aptitude Test'}
               </Button>
             )}
           </div>
@@ -262,8 +476,14 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
                 <Button
                   className="w-full"
                   onClick={() =>
-                    onNavigate({ type: 'test-editor', testId: 'test-dom-1', testType: 'domain' })
+                    task.domain_test_id &&
+                    onNavigate({
+                      type: 'test-editor',
+                      testId: task.domain_test_id,
+                      testType: 'domain'
+                    })
                   }
+                  disabled={!task.domain_test_id}
                 >
                   View and Edit
                 </Button>
@@ -271,6 +491,7 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
                   variant="outline"
                   className="w-full gap-2"
                   onClick={() => handleCopyLink('domain')}
+                  disabled={!tests.domain || testsLoading}
                 >
                   {copiedLink === 'domain' ? (
                     <>
@@ -280,14 +501,18 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
                   ) : (
                     <>
                       <Copy className="w-4 h-4" />
-                      Copy Candidate Link
+                      {testsLoading ? 'Preparing Link…' : 'Copy Candidate Link'}
                     </>
                   )}
                 </Button>
               </>
             ) : (
-              <Button className="w-full" onClick={() => generateTest('domain')}>
-                Generate Domain Test
+              <Button
+                className="w-full"
+                onClick={() => handleGenerateTest('domain')}
+                disabled={generatingTest === 'domain'}
+              >
+                {generatingTest === 'domain' ? 'Generating…' : 'Generate Domain Test'}
               </Button>
             )}
           </div>
@@ -330,6 +555,11 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
 
           <TabsContent value="candidates" className="p-6 m-0">
             <div className="overflow-x-auto">
+              {scoreError && (
+                <div className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+                  {scoreError}
+                </div>
+              )}
               <table className="w-full">
                 <thead className="border-b border-gray-200">
                   <tr>
@@ -343,71 +573,97 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {candidateResults.map((candidate) => {
-                    const editing = editingScores[candidate.candidate_name];
-                    return (
-                      <tr key={candidate.candidate_name}>
-                        <td className="px-4 py-3 text-gray-900">{candidate.candidate_name}</td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {formatTimestamp(candidate.aptitude_taken_at)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Input
-                            type="number"
-                            min="0"
-                            max="20"
-                            value={editing.aptitude_score}
-                            onChange={(e) =>
-                              handleScoreChange(
-                                candidate.candidate_name,
-                                'aptitude_score',
-                                parseInt(e.target.value) || 0
-                              )
-                            }
-                            className="w-20"
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {formatTimestamp(candidate.domain_taken_at)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Input
-                            type="number"
-                            min="0"
-                            max="20"
-                            value={editing.domain_score}
-                            onChange={(e) =>
-                              handleScoreChange(
-                                candidate.candidate_name,
-                                'domain_score',
-                                parseInt(e.target.value) || 0
-                              )
-                            }
-                            className="w-20"
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <Input
-                            type="number"
-                            min="0"
-                            max="20"
-                            value={editing.interview_score}
-                            onChange={(e) =>
-                              handleScoreChange(
-                                candidate.candidate_name,
-                                'interview_score',
-                                parseInt(e.target.value) || 0
-                              )
-                            }
-                            className="w-20"
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-gray-900">
-                          {editing.aptitude_score + editing.domain_score + editing.interview_score}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {candidateLoading ? (
+                    <tr>
+                      <td className="px-4 py-6 text-center text-gray-500" colSpan={7}>
+                        Loading candidate results…
+                      </td>
+                    </tr>
+                  ) : candidateError ? (
+                    <tr>
+                      <td className="px-4 py-6 text-center text-red-600" colSpan={7}>
+                        {candidateError}
+                      </td>
+                    </tr>
+                  ) : candidateResults.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-6 text-center text-gray-500" colSpan={7}>
+                        No candidate attempts yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    candidateResults.map((candidate) => {
+                      const editing = editingScores[candidate.candidate_name] ?? candidate;
+                      return (
+                        <tr key={candidate.candidate_name}>
+                          <td className="px-4 py-3 text-gray-900">{candidate.candidate_name}</td>
+                          <td className="px-4 py-3 text-gray-600">
+                            {formatTimestamp(candidate.aptitude_taken_at)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="20"
+                              value={editing.aptitude_score}
+                              onChange={(e) =>
+                                handleScoreChange(
+                                  candidate.candidate_name,
+                                  'aptitude_score',
+                                  parseInt(e.target.value, 10) || 0
+                                )
+                              }
+                              onBlur={() => handleScoreSave(candidate.candidate_name, 'aptitude_score')}
+                              className="w-20"
+                              disabled={savingField === `${candidate.candidate_name}:aptitude_score`}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-gray-600">
+                            {formatTimestamp(candidate.domain_taken_at)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="20"
+                              value={editing.domain_score}
+                              onChange={(e) =>
+                                handleScoreChange(
+                                  candidate.candidate_name,
+                                  'domain_score',
+                                  parseInt(e.target.value, 10) || 0
+                                )
+                              }
+                              onBlur={() => handleScoreSave(candidate.candidate_name, 'domain_score')}
+                              className="w-20"
+                              disabled={savingField === `${candidate.candidate_name}:domain_score`}
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="20"
+                              value={editing.interview_score}
+                              onChange={(e) =>
+                                handleScoreChange(
+                                  candidate.candidate_name,
+                                  'interview_score',
+                                  parseInt(e.target.value, 10) || 0
+                                )
+                              }
+                              onBlur={() => handleScoreSave(candidate.candidate_name, 'interview_score')}
+                              className="w-20"
+                              disabled={savingField === `${candidate.candidate_name}:interview_score`}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {editing.aptitude_score + editing.domain_score + editing.interview_score}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
