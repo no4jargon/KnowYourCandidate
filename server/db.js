@@ -36,12 +36,6 @@ CREATE TABLE IF NOT EXISTS hiring_tasks (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_hiring_tasks_employer_id ON hiring_tasks (employer_id);
-CREATE INDEX IF NOT EXISTS idx_hiring_tasks_created_at ON hiring_tasks (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_hiring_tasks_aptitude_test ON hiring_tasks (aptitude_test_id);
-CREATE INDEX IF NOT EXISTS idx_hiring_tasks_domain_test ON hiring_tasks (domain_test_id);
-CREATE INDEX IF NOT EXISTS idx_hiring_tasks_interview_script ON hiring_tasks (interview_script_id);
-
 CREATE TRIGGER IF NOT EXISTS trg_hiring_tasks_updated_at
 AFTER UPDATE ON hiring_tasks
 FOR EACH ROW
@@ -59,6 +53,14 @@ try {
     throw error;
   }
 }
+
+db.exec(`
+CREATE INDEX IF NOT EXISTS idx_hiring_tasks_employer_id ON hiring_tasks (employer_id);
+CREATE INDEX IF NOT EXISTS idx_hiring_tasks_created_at ON hiring_tasks (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hiring_tasks_aptitude_test ON hiring_tasks (aptitude_test_id);
+CREATE INDEX IF NOT EXISTS idx_hiring_tasks_domain_test ON hiring_tasks (domain_test_id);
+CREATE INDEX IF NOT EXISTS idx_hiring_tasks_interview_script ON hiring_tasks (interview_script_id);
+`);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS tests (
