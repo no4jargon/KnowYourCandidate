@@ -142,7 +142,10 @@ export function CandidateTestTaking({
       return;
     }
 
-    const pendingEntries = Array.from(pendingResponsesRef.current.entries());
+    const pendingEntries = Array.from<[string, string | number | null]>(
+    pendingResponsesRef.current.entries()
+    );
+
     const payload = pendingEntries.map(([questionId, rawAnswer]) => ({
       questionId,
       rawAnswer
