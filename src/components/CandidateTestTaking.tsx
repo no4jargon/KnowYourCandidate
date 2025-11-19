@@ -142,7 +142,8 @@ export function CandidateTestTaking({
       return;
     }
 
-    const payload = Array.from(pendingResponsesRef.current.entries()).map(([questionId, rawAnswer]) => ({
+    const pendingEntries = Array.from(pendingResponsesRef.current.entries());
+    const payload = pendingEntries.map(([questionId, rawAnswer]) => ({
       questionId,
       rawAnswer
     }));
@@ -157,6 +158,12 @@ export function CandidateTestTaking({
       setLastSavedAt(savedAt);
       setAutosaveStatus('saved');
     } catch (err) {
+      // restore pending responses so they can be retried on the next flush
+      for (const [questionId, rawAnswer] of pendingEntries) {
+        if (!pendingResponsesRef.current.has(questionId)) {
+          pendingResponsesRef.current.set(questionId, rawAnswer);
+        }
+      }
       setAutosaveStatus('error');
       setAutosaveError(err instanceof Error ? err.message : 'Failed to save progress');
     }
