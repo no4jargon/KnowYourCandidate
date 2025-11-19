@@ -2,7 +2,17 @@ const { randomUUID } = require('crypto');
 const { z } = require('zod');
 const { callOpenAIWithSchema } = require('./llmClient');
 
-const CorrectAnswerSchema = z.discriminatedUnion('kind', [
+const NumericRangeValueSchema = z
+  .object({
+    min: z.number(),
+    max: z.number()
+  })
+  .refine((data) => data.min <= data.max, {
+    message: 'numeric_range values must have min <= max',
+    path: ['max']
+  });
+
+const CorrectAnswerSchema = z.union([
   z.object({
     kind: z.literal('exact'),
     value: z.union([z.string(), z.number()])
@@ -11,18 +21,10 @@ const CorrectAnswerSchema = z.discriminatedUnion('kind', [
     kind: z.literal('one_of'),
     value: z.array(z.string()).min(1)
   }),
-  z
-    .object({
-      kind: z.literal('numeric_range'),
-      value: z.object({
-        min: z.number(),
-        max: z.number()
-      })
-    })
-    .refine((data) => data.value.min <= data.value.max, {
-      message: 'numeric_range values must have min <= max',
-      path: ['value']
-    }),
+  z.object({
+    kind: z.literal('numeric_range'),
+    value: NumericRangeValueSchema
+  }),
   z.object({
     kind: z.literal('llm_rubric'),
     value: z.object({
