@@ -35,12 +35,16 @@ const {
   generateAndValidateFacets,
   JDFacetsSchema
 } = require('./services/facetService');
-const { generateTest, validateTestUpdate } = require('./services/testGenerationService');
+const { generateTest, validateTestUpdate, editTestWithPrompt } = require('./services/testGenerationService');
 const {
   generateInterviewScript,
   validateInterviewScriptUpdate
 } = require('./services/interviewScriptService');
 const { scoreAttempt, normalizeAnswer } = require('./services/scoringService');
+const {
+  listCandidateResultsForTask,
+  getCandidateResultForTask
+} = require('./services/candidateResultService');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -308,6 +312,12 @@ const UpdateTestPayloadSchema = z
     path: ['sections']
   });
 
+const EditTestWithPromptSchema = z
+  .object({
+    instructions: z.string().min(1, 'Instructions are required').max(2000)
+  })
+  .strict();
+
 const UpdateInterviewScriptPayloadSchema = z
   .object({
     title: z.string().min(1).optional(),
@@ -320,6 +330,38 @@ const UpdateInterviewScriptPayloadSchema = z
     message: 'Script must be an array when provided',
     path: ['script']
   });
+
+const UpdateCandidateResultSchema = z
+  .object({
+    candidateName: z.string().min(1),
+    aptitudeAttemptId: z.string().optional(),
+    aptitudeScore: z.number().min(0).max(20).optional(),
+    domainAttemptId: z.string().optional(),
+    domainScore: z.number().min(0).max(20).optional(),
+    interviewScore: z.number().min(0).max(20).optional()
+  })
+  .refine(
+    (value) => value.aptitudeScore == null || typeof value.aptitudeAttemptId === 'string',
+    {
+      message: 'aptitudeAttemptId is required when updating aptitudeScore',
+      path: ['aptitudeAttemptId']
+    }
+  )
+  .refine(
+    (value) => value.domainScore == null || typeof value.domainAttemptId === 'string',
+    {
+      message: 'domainAttemptId is required when updating domainScore',
+      path: ['domainAttemptId']
+    }
+  )
+  .refine(
+    (value) =>
+      value.aptitudeScore != null || value.domainScore != null || value.interviewScore != null,
+    {
+      message: 'At least one score must be provided',
+      path: ['aptitudeScore']
+    }
+  );
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
@@ -587,6 +629,80 @@ app.get('/api/hiring-tasks/:id', (req, res, next) => {
   }
 });
 
+app.get('/api/hiring-tasks/:id/candidate-results', (req, res, next) => {
+  try {
+    const task = getTaskById(req.params.id);
+    if (!task) {
+      res.status(404).json({ error: 'Hiring task not found' });
+      return;
+    }
+    const results = listCandidateResultsForTask(task.id);
+    res.json({ data: results });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/hiring-tasks/:id/candidate-results', (req, res, next) => {
+  try {
+    const task = getTaskById(req.params.id);
+    if (!task) {
+      res.status(404).json({ error: 'Hiring task not found' });
+      return;
+    }
+
+    const payload = UpdateCandidateResultSchema.parse(req.body ?? {});
+    let updatedTask = null;
+
+    if (payload.aptitudeScore != null) {
+      const attempt = getAttemptById(payload.aptitudeAttemptId);
+      if (!attempt || attempt.hiring_task_id !== task.id) {
+        res.status(404).json({ error: 'Aptitude attempt not found' });
+        return;
+      }
+      updateAttempt(attempt.id, { total_score: payload.aptitudeScore });
+      const refreshed = refreshStatsForTest(attempt.test_id);
+      if (refreshed) {
+        updatedTask = refreshed;
+      }
+    }
+
+    if (payload.domainScore != null) {
+      const attempt = getAttemptById(payload.domainAttemptId);
+      if (!attempt || attempt.hiring_task_id !== task.id) {
+        res.status(404).json({ error: 'Domain attempt not found' });
+        return;
+      }
+      updateAttempt(attempt.id, { total_score: payload.domainScore });
+      const refreshed = refreshStatsForTest(attempt.test_id);
+      if (refreshed) {
+        updatedTask = refreshed;
+      }
+    }
+
+    if (payload.interviewScore != null) {
+      const metadata = { ...(task.metadata || {}) };
+      const interviewScores = { ...(metadata.interview_scores || {}) };
+      interviewScores[payload.candidateName] = payload.interviewScore;
+      metadata.interview_scores = interviewScores;
+      updatedTask = updateTask(task.id, { metadata });
+    }
+
+    const candidate = getCandidateResultForTask(task.id, payload.candidateName);
+    if (!candidate) {
+      res.status(404).json({ error: 'Candidate result not found' });
+      return;
+    }
+
+    res.json({
+      data: candidate,
+      task: updatedTask ? { id: updatedTask.id, stats: updatedTask.stats } : undefined
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/tests/:id', (req, res, next) => {
   try {
     const test = getTestById(req.params.id);
@@ -816,6 +932,39 @@ app.patch('/api/tests/:id', (req, res, next) => {
     const payload = UpdateTestPayloadSchema.parse(req.body ?? {});
     const normalized = validateTestUpdate(payload);
     const saved = updateTest(req.params.id, normalized);
+    res.json({ data: saved });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/tests/:id/edit-with-prompt', async (req, res, next) => {
+  try {
+    const existing = getTestById(req.params.id);
+    if (!existing) {
+      res.status(404).json({ error: 'Test not found' });
+      return;
+    }
+
+    const payload = EditTestWithPromptSchema.parse(req.body ?? {});
+    const result = await editTestWithPrompt(existing, payload.instructions);
+    const previousVersion =
+      typeof existing.metadata?.version === 'number' ? existing.metadata.version : 1;
+    const metadata = {
+      ...(existing.metadata || {}),
+      version: previousVersion + 1,
+      last_edited_at: new Date().toISOString(),
+      last_edit_model: result.model,
+      last_edit_response_id: result.responseId,
+      last_edit_instructions: payload.instructions
+    };
+    const saved = updateTest(req.params.id, {
+      title: result.test.title,
+      description: result.test.description ?? null,
+      difficulty: result.test.difficulty,
+      sections: result.test.sections,
+      metadata
+    });
     res.json({ data: saved });
   } catch (error) {
     next(error);

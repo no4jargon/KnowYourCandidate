@@ -1,4 +1,4 @@
-import { HiringTask, JDFacets, LiveFeedItem } from '../types';
+import { CandidateResult, HiringTask, JDFacets, LiveFeedItem } from '../types';
 
 export interface PaginatedResponse<T> {
   data: T[];
@@ -39,6 +39,24 @@ interface ListHiringTasksResponse extends PaginatedResponse<HiringTask> {}
 
 interface ActivityFeedResponse {
   data: LiveFeedItem[];
+}
+
+interface CandidateResultsResponse {
+  data: CandidateResult[];
+}
+
+interface UpdateCandidateResultResponse {
+  data: CandidateResult;
+  task?: Pick<HiringTask, 'id' | 'stats'>;
+}
+
+export interface UpdateCandidateResultPayload {
+  candidateName: string;
+  aptitudeAttemptId?: string;
+  aptitudeScore?: number;
+  domainAttemptId?: string;
+  domainScore?: number;
+  interviewScore?: number;
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
@@ -104,4 +122,26 @@ export async function getActivityFeed(employerId?: string): Promise<LiveFeedItem
 
 export function formatFacets(facets: JDFacets): string {
   return JSON.stringify(facets, null, 2);
+}
+
+export async function getCandidateResults(taskId: string): Promise<CandidateResult[]> {
+  const response = await fetch(`/api/hiring-tasks/${taskId}/candidate-results`);
+  const data = await handleResponse<CandidateResultsResponse>(response);
+  return data.data;
+}
+
+export async function updateCandidateResult(
+  taskId: string,
+  payload: UpdateCandidateResultPayload
+): Promise<{ candidate: CandidateResult; task?: Pick<HiringTask, 'id' | 'stats'> }> {
+  const response = await fetch(`/api/hiring-tasks/${taskId}/candidate-results`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await handleResponse<UpdateCandidateResultResponse>(response);
+  return { candidate: data.data, task: data.task };
 }

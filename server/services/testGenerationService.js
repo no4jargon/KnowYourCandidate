@@ -843,6 +843,63 @@ async function generateTest({ kind, facets, jobDescription, instructions = '', d
   }
 }
 
+async function editTestWithPrompt(existingTest, instructions) {
+  if (!instructions || !instructions.trim()) {
+    throw new Error('Instructions are required');
+  }
+
+  const currentContent = {
+    title: existingTest.title,
+    description: existingTest.description || '',
+    difficulty: existingTest.difficulty || 'medium',
+    sections: existingTest.sections || []
+  };
+
+  try {
+    const { model, response_id, payload } = await callOpenAIWithSchema({
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are updating an existing hiring assessment. Always return JSON matching the schema with exactly 20 questions and binary scoring.'
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text:
+                `Existing test (JSON):\n${JSON.stringify(currentContent, null, 2)}\n\n` +
+                `Apply the employer instructions below while preserving schema validity, question count, and falsifiable answers.\n` +
+                `Instructions: ${instructions}`
+            }
+          ]
+        }
+      ],
+      schema: { name: 'test_edit', schema: TestGenerationJsonSchema }
+    });
+
+    const parsed = TestContentSchema.parse(payload);
+    const normalized = normalizeTest(parsed);
+    return {
+      model,
+      responseId: response_id,
+      test: normalized
+    };
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      const parsed = TestContentSchema.parse(currentContent);
+      const normalized = normalizeTest(parsed);
+      return {
+        model: 'fallback-test-editor-v1',
+        responseId: 'local-fallback',
+        test: normalized
+      };
+    }
+    throw error;
+  }
+}
+
 function validateTestUpdate({ sections, ...rest }) {
   let validatedSections;
   if (sections) {
@@ -864,5 +921,6 @@ module.exports = {
   generateTest,
   TestContentSchema,
   SectionsSchema,
-  validateTestUpdate
+  validateTestUpdate,
+  editTestWithPrompt
 };

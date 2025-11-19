@@ -131,7 +131,9 @@ export const mockTests: { [key: string]: Test } = {
     id: 'test-apt-1',
     public_id: 'pub-apt-1',
     hiring_task_id: 'task-1',
-    type: 'aptitude',
+    kind: 'aptitude',
+    title: 'Backend Engineer Aptitude Test',
+    description: 'Sample aptitude questions',
     difficulty: 'medium',
     sections: [
       {
@@ -356,7 +358,9 @@ export const mockTests: { [key: string]: Test } = {
     id: 'test-dom-1',
     public_id: 'pub-dom-1',
     hiring_task_id: 'task-1',
-    type: 'domain',
+    kind: 'domain',
+    title: 'Backend Engineer Domain Test',
+    description: 'Sample domain questions',
     difficulty: 'medium',
     sections: [
       {
