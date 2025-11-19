@@ -53,10 +53,13 @@
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@vitejs/plugin-react-swc": "^3.10.2",
+    "concurrently": "^9.2.1",
     "vite": "6.3.5"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -s first -n server,client -c magenta,cyan \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "node server/index.js",
     "build": "vite build",
     "server": "node server/index.js"
   }
