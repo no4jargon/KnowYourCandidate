@@ -1,6 +1,48 @@
 const https = require('https');
 const { URL } = require('url');
 
+function normalizeContent(content) {
+  if (typeof content === 'string') {
+    return [{ type: 'input_text', text: content }];
+  }
+
+  if (Array.isArray(content)) {
+    return content.map((item) => {
+      if (typeof item === 'string') {
+        return { type: 'input_text', text: item };
+      }
+
+      if (item && typeof item === 'object') {
+        if (item.type === 'text') {
+          return { ...item, type: 'input_text' };
+        }
+        return item;
+      }
+
+      return { type: 'input_text', text: String(item) };
+    });
+  }
+
+  if (content && typeof content === 'object') {
+    if (content.type === 'text') {
+      return [{ ...content, type: 'input_text' }];
+    }
+    return [content];
+  }
+
+  return [{ type: 'input_text', text: String(content) }];
+}
+
+function buildResponseInput(messages = []) {
+  return messages.map((message) => {
+    const { role, content } = message || {};
+    return {
+      role: role || 'user',
+      content: normalizeContent(content)
+    };
+  });
+}
+
 function callOpenAIWithSchema({ messages, schema }) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.OPENAI_API_KEY;
@@ -12,7 +54,7 @@ function callOpenAIWithSchema({ messages, schema }) {
     const url = new URL('/responses', baseUrl);
     const payload = JSON.stringify({
       model: 'gpt-5.1',
-      input: messages,
+      input: buildResponseInput(messages),
       response_format: {
         type: 'json_schema',
         json_schema: {
@@ -40,14 +82,20 @@ function callOpenAIWithSchema({ messages, schema }) {
         }
         try {
           const parsed = JSON.parse(data);
-          const content = parsed?.output?.[0]?.content?.[0]?.text;
-          if (!content) {
+          const firstContent = parsed?.output?.[0]?.content?.[0];
+
+          const contentText = firstContent?.type === 'output_text' ? firstContent.text : firstContent?.text;
+          const contentJson = firstContent?.type === 'json' ? firstContent.json : undefined;
+          const payload =
+            contentJson ?? (typeof contentText === 'string' ? JSON.parse(contentText) : undefined);
+
+          if (!payload) {
             return reject(new Error('OpenAI API returned an unexpected response'));
           }
           resolve({
             model: parsed.model,
             response_id: parsed.id,
-            payload: JSON.parse(content)
+            payload
           });
         } catch (error) {
           reject(error);
