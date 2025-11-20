@@ -34,6 +34,7 @@
     "clsx": "*",
     "cmdk": "^1.1.1",
     "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
     "input-otp": "^1.4.2",
@@ -61,6 +62,7 @@
     "dev:client": "vite",
     "dev:server": "node server/index.js",
     "build": "vite build",
-    "server": "node server/index.js"
+    "server": "node server/index.js",
+    "test:openai": "node server/scripts/testOpenAI.js"
   }
 }

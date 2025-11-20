@@ -4,14 +4,14 @@ const { URL } = require('url');
 function callOpenAIWithSchema({ messages, schema }) {
   return new Promise((resolve, reject) => {
     const apiKey = process.env.OPENAI_API_KEY;
-    const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+    const baseUrl = 'https://api.openai.com/v1';
     if (!apiKey) {
       return reject(new Error('OPENAI_API_KEY is not configured'));
     }
 
     const url = new URL('/responses', baseUrl);
     const payload = JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+      model: 'gpt-5.1',
       input: messages,
       response_format: {
         type: 'json_schema',
@@ -74,7 +74,7 @@ function callOpenAI(jobDescriptionRaw, metadata = {}) {
         content: [
           {
             type: 'text',
-            text: `Extract JD facets for the following job description. Return JSON only.\n${jobDescriptionRaw}`
+            text: `Fill in various values releated to facets of the job requirements using information from the following job description. Return JSON only.\n${jobDescriptionRaw}`
           }
         ]
       }
@@ -178,6 +178,7 @@ async function generateFacets(jobDescriptionRaw, metadata = {}) {
       facets: response.payload
     };
   } catch (error) {
+    console.error('Error generating facets via OpenAI:', error);
     if (process.env.NODE_ENV !== 'production') {
       return fallbackFacets(jobDescriptionRaw, metadata.context);
     }
