@@ -110,7 +110,10 @@ export interface CandidateResult {
 export interface InterviewScript {
   id: string;
   hiring_task_id: string;
+  title?: string | null;
+  description?: string | null;
   script: InterviewQuestion[];
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 

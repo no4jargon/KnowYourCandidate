@@ -66,11 +66,13 @@ This document is the authoritative reference for the "Assess" product design. Ev
   - LLM: OpenAI API for facets, test generation, interview scripts, grading.
   - Voice Capture: separate module for STT + conversational follow-up.
 - **Modules:** auth, hiring-tasks, tests, test-runner (public candidate flow), interviews, jd-voice-capture. Each module owns its routes, services, validation to isolate errors.
+- **Reviewer demo mode:** local development should remain demoable with a deterministic single-employer dataset. On an empty local DB, seed a representative hiring-task/test/attempt set automatically; provide a reset script so reviewers can restore the same state before demos, screenshots, or interview loops.
 
 ## 11. Priorities
 1. auth, hiring task creation (text JD), JD facets extraction, aptitude test generation, public candidate flow & scoring for aptitude test, dashboard stats.
 2. domain test generation & candidate flow, text answer LLM grading, interview script generation UI.
 3. JD voice capture module, leaderboards, advanced filtering, UX polish.
+4. Preserve a crisp reviewer experience: README screenshots, deterministic demo reset, and honest setup notes should stay current with the product surface.
 
 ---
 

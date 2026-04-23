@@ -1,5 +1,5 @@
 {
-  "name": "Build Responsive Web App",
+  "name": "Assess",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -40,6 +40,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "^0.487.0",
     "next-themes": "^0.4.6",
+    "openai": "^6.9.1",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
@@ -63,6 +64,7 @@
     "dev:server": "node server/index.js",
     "build": "vite build",
     "server": "node server/index.js",
+    "demo:reset": "node server/scripts/resetDemoData.js",
     "test:openai": "node server/scripts/testOpenAI.js"
   }
 }

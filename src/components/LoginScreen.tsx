@@ -71,9 +71,12 @@ export function LoginScreen({ onAuthenticated }: LoginScreenProps) {
             </Button>
           </form>
 
-          <div className="mt-6 text-center">
-            {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
-            <p className="text-gray-500">v0 - single employer account, no multi user roles yet</p>
+          <div className="mt-6 space-y-2 text-center">
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <p className="text-gray-500">v0 · single employer account · built for quick hiring reviews</p>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+              Demo login: <span className="text-gray-900">employer@acme.com</span> / <span className="text-gray-900">password123</span>
+            </div>
           </div>
         </div>
 
@@ -84,7 +87,7 @@ export function LoginScreen({ onAuthenticated }: LoginScreenProps) {
             </a>
           </div>
           <div className="text-gray-400">
-            <p>Test candidate flow: <a href="#/t/pub-apt-1" className="text-blue-600 hover:underline">Aptitude Test Link</a></p>
+            <p>Want the public flow? <a href="#/t/pub-apt-1" className="text-blue-600 hover:underline">Open the seeded aptitude test</a></p>
           </div>
         </div>
       </div>

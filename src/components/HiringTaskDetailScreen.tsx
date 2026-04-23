@@ -3,15 +3,16 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Input } from './ui/input';
-import { mockInterviewScript } from '../data/mockData';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Screen } from '../App';
 import { ArrowLeft, Copy, FileText, Check } from 'lucide-react';
-import { CandidateResult, HiringTask, Test } from '../types';
+import { CandidateResult, HiringTask, InterviewScript, Test } from '../types';
 import {
   getHiringTask,
   getCandidateResults,
   updateCandidateResult
 } from '../api/hiringTasks';
+import { getInterviewScript, generateInterviewScriptArtifact } from '../api/interviewScripts';
 import { generateTestArtifact, getTest } from '../api/tests';
 
 interface HiringTaskDetailScreenProps {
@@ -35,6 +36,10 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
   const [actionError, setActionError] = useState<string | null>(null);
   const [scoreError, setScoreError] = useState<string | null>(null);
   const [savingField, setSavingField] = useState<string | null>(null);
+  const [interviewScript, setInterviewScript] = useState<InterviewScript | null>(null);
+  const [interviewLoading, setInterviewLoading] = useState(false);
+  const [interviewDialogOpen, setInterviewDialogOpen] = useState(false);
+  const [generatingInterviewScript, setGeneratingInterviewScript] = useState(false);
 
   useEffect(() => {
     setEditingScores(
@@ -243,6 +248,60 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
       );
     } finally {
       setGeneratingTest(null);
+    }
+  };
+
+  const handleViewInterviewScript = async () => {
+    if (!task?.interview_script_id) {
+      setActionError('Generate the interview script first.');
+      return;
+    }
+
+    setInterviewDialogOpen(true);
+    setInterviewLoading(true);
+    setActionError(null);
+    try {
+      const script = await getInterviewScript(task.interview_script_id);
+      setInterviewScript(script);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to load interview script.');
+      setInterviewScript(null);
+    } finally {
+      setInterviewLoading(false);
+    }
+  };
+
+  const handleGenerateInterviewScript = async () => {
+    if (!task) {
+      return;
+    }
+
+    setGeneratingInterviewScript(true);
+    setActionError(null);
+    try {
+      const script = await generateInterviewScriptArtifact(task.id);
+      setInterviewScript(script);
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              has_interview_script: true,
+              interview_script_id: script.id,
+              stats: {
+                ...prev.stats,
+                interview: {
+                  ...(prev.stats?.interview || {}),
+                  script_id: script.id
+                }
+              }
+            }
+          : prev
+      );
+      setInterviewDialogOpen(true);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to generate interview script.');
+    } finally {
+      setGeneratingInterviewScript(false);
     }
   };
 
@@ -531,17 +590,49 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
           </p>
           <div className="space-y-2">
             {task.has_interview_script ? (
-              <Button className="w-full" onClick={() => alert('Interview script viewer would open')}>
-                View Interview Script
+              <Button className="w-full" onClick={handleViewInterviewScript} disabled={interviewLoading}>
+                {interviewLoading ? 'Loading…' : 'View Interview Script'}
               </Button>
             ) : (
-              <Button className="w-full" onClick={() => alert('Generating interview script...')}>
-                Generate Interview Script
+              <Button
+                className="w-full"
+                onClick={handleGenerateInterviewScript}
+                disabled={generatingInterviewScript}
+              >
+                {generatingInterviewScript ? 'Generating…' : 'Generate Interview Script'}
               </Button>
             )}
           </div>
         </div>
       </div>
+
+      <Dialog open={interviewDialogOpen} onOpenChange={setInterviewDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{interviewScript?.title || 'Interview Script'}</DialogTitle>
+            <DialogDescription>
+              {interviewScript?.description || 'Structured 10–15 minute conversation guide.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {interviewLoading ? (
+            <div className="text-gray-500">Loading interview script…</div>
+          ) : interviewScript ? (
+            <div className="space-y-4">
+              {interviewScript.script.map((question, index) => (
+                <div key={question.id} className="rounded-lg border border-gray-200 p-4">
+                  <div className="mb-2 text-sm text-gray-500">
+                    {index + 1}. {question.type.replace(/_/g, ' ')}
+                  </div>
+                  <div className="text-gray-900">{question.prompt}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-gray-500">No interview script available yet.</div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Candidate Results */}
       <div className="bg-white rounded-lg border border-gray-200">

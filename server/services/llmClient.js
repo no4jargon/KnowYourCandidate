@@ -1,36 +1,45 @@
-const https = require('https');
-const { URL } = require('url');
+const OpenAI = require('openai');
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 function normalizeContent(content) {
   if (typeof content === 'string') {
-    return [{ type: 'input_text', text: content }];
+    return [{ type: 'text', text: content }];
   }
 
   if (Array.isArray(content)) {
     return content.map((item) => {
       if (typeof item === 'string') {
-        return { type: 'input_text', text: item };
+        return { type: 'text', text: item };
       }
 
       if (item && typeof item === 'object') {
         if (item.type === 'text') {
-          return { ...item, type: 'input_text' };
+          return item;
         }
-        return item;
+        if (item.text) {
+          return { type: 'text', text: item.text };
+        }
+        return { type: 'text', text: JSON.stringify(item) };
       }
 
-      return { type: 'input_text', text: String(item) };
+      return { type: 'text', text: String(item) };
     });
   }
 
   if (content && typeof content === 'object') {
     if (content.type === 'text') {
-      return [{ ...content, type: 'input_text' }];
+      return [content];
     }
-    return [content];
+    if (content.text) {
+      return [{ type: 'text', text: content.text }];
+    }
+    return [{ type: 'text', text: JSON.stringify(content) }];
   }
 
-  return [{ type: 'input_text', text: String(content) }];
+  return [{ type: 'text', text: String(content) }];
 }
 
 function buildResponseInput(messages = []) {
@@ -43,70 +52,65 @@ function buildResponseInput(messages = []) {
   });
 }
 
-function callOpenAIWithSchema({ messages, schema }) {
-  return new Promise((resolve, reject) => {
-    const apiKey = process.env.OPENAI_API_KEY;
-    const baseUrl = 'https://api.openai.com/v1';
-    if (!apiKey) {
-      return reject(new Error('OPENAI_API_KEY is not configured'));
-    }
+async function callOpenAIWithSchema({ messages, schema }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not configured');
+  }
 
-    const url = new URL('/responses', baseUrl);
-    const payload = JSON.stringify({
-      model: 'gpt-5.1',
-      input: buildResponseInput(messages),
-      response_format: {
+  const payload = {
+    model: process.env.OPENAI_MODEL || 'gpt-5.1',
+    input: buildResponseInput(messages),
+    text: {
+      format: {
         type: 'json_schema',
-        json_schema: {
-          name: schema.name || 'structured_output',
-          schema: schema.schema || schema
-        }
+        name: schema.name || 'structured_output',
+        schema: schema.schema || schema,
+        strict: true
       }
-    });
+    }
+  };
 
-    const options = {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Length': Buffer.byteLength(payload)
+  const res = await client.responses.create(payload);
+
+  const contentItems = [];
+  for (const message of res.output || []) {
+    if (Array.isArray(message?.content)) {
+      contentItems.push(...message.content);
+    }
+  }
+
+  const jsonItem = contentItems.find((item) => item?.type === 'output_json' && item.json);
+  let parsedPayload = jsonItem?.json;
+
+  if (!parsedPayload) {
+    const textItem = contentItems.find((item) => typeof item?.text === 'string');
+    if (textItem) {
+      try {
+        parsedPayload = JSON.parse(textItem.text);
+      } catch (err) {
+        console.error('Failed to parse text content as JSON:', err);
       }
-    };
+    }
+  }
 
-    const req = https.request(url, options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 400) {
-          return reject(new Error(`OpenAI API error: ${res.statusCode} ${data}`));
-        }
-        try {
-          const parsed = JSON.parse(data);
-          const firstContent = parsed?.output?.[0]?.content?.[0];
+  if (!parsedPayload && typeof res.output_text === 'string' && res.output_text.trim()) {
+    try {
+      parsedPayload = JSON.parse(res.output_text);
+    } catch (err) {
+      console.error('Failed to parse output_text as JSON:', err);
+    }
+  }
 
-          const contentText = firstContent?.type === 'output_text' ? firstContent.text : firstContent?.text;
-          const contentJson = firstContent?.type === 'json' ? firstContent.json : undefined;
-          const payload =
-            contentJson ?? (typeof contentText === 'string' ? JSON.parse(contentText) : undefined);
+  if (!parsedPayload) {
+    throw new Error('OpenAI API returned an unexpected response shape');
+  }
 
-          if (!payload) {
-            return reject(new Error('OpenAI API returned an unexpected response'));
-          }
-          resolve({
-            model: parsed.model,
-            response_id: parsed.id,
-            payload
-          });
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.write(payload);
-    req.end();
-  });
+  return {
+    model: res.model,
+    response_id: res.id,
+    payload: parsedPayload
+  };
 }
 
 function callOpenAI(jobDescriptionRaw, metadata = {}) {
@@ -115,14 +119,14 @@ function callOpenAI(jobDescriptionRaw, metadata = {}) {
       {
         role: 'system',
         content:
-          'You are a system that extracts structured hiring facets from job descriptions. Return a JSON object that conforms to the provided schema.'
+          'you are a system that extracts structured hiring facets from job descriptions. return a json object that conforms to the provided schema.'
       },
       {
         role: 'user',
         content: [
           {
             type: 'text',
-            text: `Fill in various values releated to facets of the job requirements using information from the following job description. Return JSON only.\n${jobDescriptionRaw}`
+            text: `fill in various values releated to facets of the job requirements using information from the following job description. return json only.\n${jobDescriptionRaw}`
           }
         ]
       }
@@ -186,10 +190,10 @@ function fallbackFacets(jobDescriptionRaw, { title, location } = {}) {
     model: 'fallback-facets-v1',
     response_id: 'local-fallback',
     facets: {
-      role_title: title || lines[0] || 'Unknown role',
+      role_title: title || lines[0] || 'unknown role',
       seniority,
       department,
-      location: location || 'Not specified',
+      location: location || 'not specified',
       work_type: workType,
       must_have_skills: mustHave.length ? mustHave : ['communication'],
       nice_to_have_skills: niceToHave,
@@ -217,7 +221,7 @@ async function generateFacets(jobDescriptionRaw, metadata = {}) {
   try {
     const schema = metadata.schema;
     if (!schema) {
-      throw new Error('Schema metadata is required for LLM call');
+      throw new Error('schema metadata is required for llm call');
     }
     const response = await callOpenAI(jobDescriptionRaw, metadata);
     return {
@@ -226,7 +230,7 @@ async function generateFacets(jobDescriptionRaw, metadata = {}) {
       facets: response.payload
     };
   } catch (error) {
-    console.error('Error generating facets via OpenAI:', error);
+    console.error('error generating facets via openai:', error);
     if (process.env.NODE_ENV !== 'production') {
       return fallbackFacets(jobDescriptionRaw, metadata.context);
     }

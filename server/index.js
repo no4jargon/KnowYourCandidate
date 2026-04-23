@@ -46,6 +46,7 @@ const {
   listCandidateResultsForTask,
   getCandidateResultForTask
 } = require('./services/candidateResultService');
+const { seedDemoData } = require('./services/demoSeedService');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -1022,6 +1023,17 @@ app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
 });
+
+try {
+  const seedResult = seedDemoData();
+  if (seedResult.seeded) {
+    console.log(
+      `Seeded demo data: ${seedResult.tasks} tasks, ${seedResult.tests} tests, ${seedResult.attempts} attempts.`
+    );
+  }
+} catch (error) {
+  console.error('Failed to seed demo data:', error);
+}
 
 app.listen(port, () => {
   console.log(`API server listening on http://localhost:${port}`);
