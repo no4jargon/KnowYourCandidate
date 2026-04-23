@@ -171,16 +171,16 @@
             {
               "id": "q1",
               "type": "multiple_choice",
-              "prompt": "If all Bloops are Razzies and all Razzies are Lazzies, then all Bloops are definitely Lazzies. Is this statement true?",
+              "prompt": "Which of the following best describes depreciation in accounting?",
               "options": [
-                "True",
-                "False",
-                "Cannot be determined",
-                "Depends on context"
+                "The process of reducing inventory value due to market conditions",
+                "The allocation of the cost of a tangible asset over its useful life",
+                "The recording of cash outflows related to operating expenses",
+                "The increase in value of an asset over time due to demand"
               ],
               "correct_answer": {
                 "kind": "exact",
-                "value": "True"
+                "value": "The allocation of the cost of a tangible asset over its useful life"
               },
               "max_score": 1
             },
