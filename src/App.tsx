@@ -143,38 +143,12 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Left Side Navigation */}
-      <aside className="hidden md:flex md:w-64 bg-white border-r border-gray-200 flex-col">
-        <div className="p-6">
-          <h1 className="tracking-tight">assess</h1>
-        </div>
-        <nav className="flex-1 px-4 space-y-1">
-          <button
-            onClick={() => navigate({ type: 'dashboard' })}
-            className={`w-full text-left px-4 py-2 rounded-lg transition-colors ${
-              currentScreen.type === 'dashboard'
-                ? 'bg-gray-100 text-gray-900'
-                : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            Hiring Tasks
-          </button>
-          <button
-            className="w-full text-left px-4 py-2 rounded-lg text-gray-400 cursor-not-allowed"
-            disabled
-          >
-            Settings
-          </button>
-        </nav>
-      </aside>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="h-screen bg-gray-50">
+      <div className="flex h-full flex-col overflow-hidden">
         {/* Top Bar */}
         <header className="bg-white border-b border-gray-200 px-4 md:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="md:hidden tracking-tight">assess</h1>
+            <h1 className="tracking-tight">Assess</h1>
             <span className="text-gray-500 hidden md:inline">{session?.name ?? 'Employer'}</span>
           </div>
           <div className="flex items-center gap-4">

@@ -116,7 +116,7 @@ export function CandidateTestEntry({ testPublicId, onNavigate }: CandidateTestEn
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 max-w-lg w-full">
         <div className="mb-6">
           <div className="inline-block px-3 py-1 bg-gray-100 rounded text-gray-600 mb-4">
-            assess
+            Assess
           </div>
           <h2 className="mb-2">{test.kind === 'aptitude' ? 'Aptitude' : 'Domain'} Test</h2>
           <p className="text-gray-600">{task.title}</p>

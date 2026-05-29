@@ -10,6 +10,8 @@ This document is the authoritative reference for the "Assess" product design. Ev
   - Candidates require only a link and name to participate—no authentication.
   - Tests must be mobile-friendly and optimized for low bandwidth.
   - All AI-generated content remains editable by employers.
+  - Visual direction should communicate precision, speed, and operational competence through restrained industrial minimalism.
+  - Default UI palette is predominantly black and white with sparse accent colors reserved for states, emphasis, and guidance.
 
 ## 2. User Roles & High-Level Flows
 - **Employer:** logs in, creates/manages hiring tasks, generates tests and interview scripts, shares links, reviews/edit scores, views leaderboards.
@@ -17,8 +19,9 @@ This document is the authoritative reference for the "Assess" product design. Ev
 - **Primary flow:** employer login → dashboard → create hiring task (text JD or voice helper) → generate artifacts → share candidate links → candidate completes tests → backend scores → employer reviews results and leaderboards.
 
 ## 3. Hiring Task Lifecycle
-- **Hiring Task Object:** stores JD text & facets, booleans for generated artifacts, timestamps, employer ownership.
-- **Dashboard List View:** shows title, created date, artifact badges (on/off), candidate counts, average scores, and a live activity feed (e.g., completion events with timestamps and scores).
+- **Hiring Task Object:** stores JD text & facets, booleans for generated artifacts, timestamps, employer ownership, and optional workflow metadata such as open/closed state and hire-complete context.
+- **Dashboard List View:** titled **"Your Hiring Command Center"** and shows title, created date, task status (e.g. active vs closed/hired), artifact badges (on/off), candidate counts, and average scores. The live activity feed is hidden from the dashboard by default in V0.
+- **Employer Shell Navigation:** V0 uses a simplified top bar only; do not introduce a persistent left-hand navigation panel unless product requirements expand beyond the current single-account workflow.
 - **Task Detail View:**
   - Top: title, created date, full JD text.
   - Middle: cards for aptitude test, domain test, interview script with status and actions (generate, view/edit, copy/share link).
@@ -66,7 +69,7 @@ This document is the authoritative reference for the "Assess" product design. Ev
   - LLM: OpenAI API for facets, test generation, interview scripts, grading.
   - Voice Capture: separate module for STT + conversational follow-up.
 - **Modules:** auth, hiring-tasks, tests, test-runner (public candidate flow), interviews, jd-voice-capture. Each module owns its routes, services, validation to isolate errors.
-- **Reviewer demo mode:** local development should remain demoable with a deterministic single-employer dataset. On an empty local DB, seed a representative hiring-task/test/attempt set automatically; provide a reset script so reviewers can restore the same state before demos, screenshots, or interview loops.
+- **Reviewer demo mode:** local development should remain demoable with a deterministic single-employer dataset. On an empty local DB, seed a representative multi-task review set automatically, including a mix of early-stage roles, fully generated roles with meaningful candidate volume, and at least one closed/hired role; provide a reset script so reviewers can restore the same state before demos, screenshots, or interview loops.
 
 ## 11. Priorities
 1. auth, hiring task creation (text JD), JD facets extraction, aptitude test generation, public candidate flow & scoring for aptitude test, dashboard stats.

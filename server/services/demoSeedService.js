@@ -68,7 +68,7 @@ function normalizeTest(test, overrides = {}) {
   };
 }
 
-function computeStats({ aptitudeTestId, domainTestId, interviewScriptId, attempts }) {
+function computeStats({ aptitudeTestId, domainTestId, interviewScriptId, attempts, interviewResults = [] }) {
   const summarize = (testId) => {
     const submitted = attempts.filter((attempt) => attempt.test_id === testId && attempt.submitted_at);
     const attemptCount = submitted.length;
@@ -91,14 +91,135 @@ function computeStats({ aptitudeTestId, domainTestId, interviewScriptId, attempt
     };
   };
 
+  const completedInterviews = interviewResults.filter(
+    (candidate) => Number(candidate.interview_score || 0) > 0
+  );
+  const lastInterviewAt = completedInterviews.length
+    ? completedInterviews
+        .map((candidate) => candidate.interview_completed_at)
+        .filter(Boolean)
+        .sort()
+        .slice(-1)[0] || null
+    : null;
+
   return {
     aptitude: summarize(aptitudeTestId),
     domain: summarize(domainTestId),
     interview: {
       script_id: interviewScriptId || null,
-      completed: 0,
-      last_completed_at: null
+      completed: completedInterviews.length,
+      last_completed_at: lastInterviewAt
     }
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function addMinutes(timestamp, minutes) {
+  return new Date(new Date(timestamp).getTime() + minutes * 60 * 1000).toISOString();
+}
+
+function generateCandidateBatch({
+  names,
+  startDate,
+  aptitudeBase,
+  domainBase,
+  interviewBase = 0,
+  interviewCount = 0,
+  spacingMinutes = 73,
+  domainOffsetMinutes = 42,
+  interviewOffsetMinutes = 160
+}) {
+  const aptitudePattern = [2, 1, 0, 3, -1, 2, -2, 1, 0, -1, 2, -2, 1, 0, 3, -1, 2, 1, -1, 0, 2, -2];
+  const domainPattern = [1, 0, 2, -1, 1, -2, 2, 0, -1, 1, 0, 2, -2, 1, 0, -1, 2, 1, -1, 0, 2, -2];
+  const interviewPattern = [1, 0, 2, -1, 1, 0, 2, -1, 1, 0];
+
+  return names.map((candidateName, index) => {
+    const aptitude_taken_at = addMinutes(startDate, index * spacingMinutes);
+    const domain_taken_at = addMinutes(aptitude_taken_at, domainOffsetMinutes);
+    const hasInterviewScore = index < interviewCount;
+    const interview_score = hasInterviewScore
+      ? clamp(interviewBase + interviewPattern[index % interviewPattern.length], 10, 20)
+      : 0;
+
+    return {
+      candidate_name: candidateName,
+      aptitude_taken_at,
+      aptitude_score: clamp(aptitudeBase + aptitudePattern[index % aptitudePattern.length], 11, 20),
+      domain_taken_at,
+      domain_score: clamp(domainBase + domainPattern[index % domainPattern.length], 10, 20),
+      interview_score,
+      interview_completed_at: hasInterviewScore
+        ? addMinutes(domain_taken_at, interviewOffsetMinutes + index * 11)
+        : null,
+      overall_score: 0
+    };
+  }).map((candidate) => ({
+    ...candidate,
+    overall_score:
+      Number(candidate.aptitude_score || 0) +
+      Number(candidate.domain_score || 0) +
+      Number(candidate.interview_score || 0)
+  }));
+}
+
+function buildAttemptRecords({ taskId, aptitudeTestId, domainTestId, candidates }) {
+  const attempts = [];
+  const interviewScores = {};
+
+  for (const candidate of candidates) {
+    const slug = slugifyCandidateName(candidate.candidate_name);
+
+    if (candidate.aptitude_taken_at && aptitudeTestId) {
+      attempts.push({
+        id: `attempt-apt-${taskId}-${slug}`,
+        test_id: aptitudeTestId,
+        hiring_task_id: taskId,
+        candidate_name: candidate.candidate_name,
+        candidate_email: null,
+        started_at: candidate.aptitude_taken_at,
+        submitted_at: candidate.aptitude_taken_at,
+        total_score: Number(candidate.aptitude_score || 0),
+        max_score: 20,
+        metadata: {
+          seeded_demo: true,
+          started_via: 'demo-seed',
+          last_autosave_at: candidate.aptitude_taken_at,
+          last_scored_at: candidate.aptitude_taken_at
+        }
+      });
+    }
+
+    if (candidate.domain_taken_at && domainTestId) {
+      attempts.push({
+        id: `attempt-dom-${taskId}-${slug}`,
+        test_id: domainTestId,
+        hiring_task_id: taskId,
+        candidate_name: candidate.candidate_name,
+        candidate_email: null,
+        started_at: candidate.domain_taken_at,
+        submitted_at: candidate.domain_taken_at,
+        total_score: Number(candidate.domain_score || 0),
+        max_score: 20,
+        metadata: {
+          seeded_demo: true,
+          started_via: 'demo-seed',
+          last_autosave_at: candidate.domain_taken_at,
+          last_scored_at: candidate.domain_taken_at
+        }
+      });
+    }
+
+    if (Number(candidate.interview_score || 0) > 0) {
+      interviewScores[candidate.candidate_name] = Number(candidate.interview_score || 0);
+    }
+  }
+
+  return {
+    attempts,
+    interviewScores
   };
 }
 
@@ -108,6 +229,75 @@ function buildDemoDataset() {
   const primaryTask = clone(mockHiringTasks[0]);
   const secondaryTask = clone(mockHiringTasks[1]);
   const tertiaryTask = clone(mockHiringTasks[2]);
+
+  const platformTask = {
+    ...clone(primaryTask),
+    id: 'task-4',
+    title: 'Platform Engineer, Hyderabad',
+    location: 'Hyderabad, India',
+    created_at: '2025-10-28T09:30:00Z',
+    job_description_raw:
+      'We are hiring a Platform Engineer to strengthen our developer platform and runtime infrastructure for a growing fintech product.\n\nKey Responsibilities:\n- Improve deployment reliability and observability\n- Build internal tooling for service ownership and incident response\n- Scale Kubernetes-based workloads and shared data services\n- Partner with backend teams on performance, security, and resilience\n\nRequirements:\n- 4+ years in backend or platform engineering\n- Strong experience with APIs, PostgreSQL, and distributed systems\n- Hands-on knowledge of cloud infrastructure and container orchestration\n- Clear communication and ownership during incidents',
+    job_description_facets: {
+      ...clone(primaryTask.job_description_facets),
+      role_title: 'Platform Engineer',
+      seniority: 'mid-level',
+      location: 'Hyderabad, India',
+      work_type: 'hybrid',
+      must_have_skills: ['python', 'sql', 'distributed systems', 'kubernetes'],
+      nice_to_have_skills: ['aws', 'terraform'],
+      tools_and_tech: ['kubernetes', 'postgresql', 'django'],
+      typical_tasks: ['scale internal platforms', 'improve service reliability']
+    }
+  };
+
+  const dataEngineerTask = {
+    ...clone(primaryTask),
+    id: 'task-5',
+    title: 'Data Engineer, Chennai',
+    location: 'Chennai, India',
+    created_at: '2025-10-24T11:15:00Z',
+    job_description_raw:
+      'We are looking for a Data Engineer to build reliable analytics pipelines for transaction and customer reporting.\n\nKey Responsibilities:\n- Model data for finance and operations use cases\n- Build ETL jobs and quality checks\n- Improve warehouse performance and monitoring\n- Work closely with analytics and backend teams\n\nRequirements:\n- 3-6 years in data or backend engineering\n- Strong SQL and Python fundamentals\n- Experience with workflow orchestration and data quality practices\n- Comfortable collaborating across engineering and analytics',
+    job_description_facets: {
+      ...clone(primaryTask.job_description_facets),
+      role_title: 'Data Engineer',
+      seniority: 'mid-level',
+      department: 'data',
+      location: 'Chennai, India',
+      work_type: 'hybrid',
+      must_have_skills: ['python', 'sql', 'data modeling'],
+      nice_to_have_skills: ['airflow', 'dbt'],
+      tools_and_tech: ['python', 'postgresql', 'sql'],
+      domain_industry: 'fintech',
+      typical_tasks: ['build data pipelines', 'improve warehouse performance'],
+      data_intensity: 'high',
+      communication_intensity: 'medium',
+      math_data_intensity: 'high'
+    }
+  };
+
+  const closedSeniorBackendTask = {
+    ...clone(primaryTask),
+    id: 'task-6',
+    title: 'Senior Backend Engineer, Pune',
+    location: 'Pune, India',
+    created_at: '2025-10-18T08:45:00Z',
+    job_description_raw:
+      'Senior Backend Engineer needed to lead design and scaling work across core payment and ledger services.\n\nKey Responsibilities:\n- Architect robust APIs and event-driven workflows\n- Guide engineers on performance, security, and review quality\n- Improve reliability for money movement and reconciliation services\n- Partner with product and operations on rollout readiness\n\nRequirements:\n- 6+ years in backend systems\n- Strong Python, SQL, and system design fundamentals\n- Experience in regulated or transaction-heavy environments\n- Demonstrated mentoring and operational ownership',
+    job_description_facets: {
+      ...clone(primaryTask.job_description_facets),
+      role_title: 'Senior Backend Engineer',
+      seniority: 'senior',
+      location: 'Pune, India',
+      work_type: 'hybrid',
+      must_have_skills: ['python', 'sql', 'distributed systems', 'system design'],
+      nice_to_have_skills: ['aws', 'kubernetes', 'redis'],
+      tools_and_tech: ['django', 'postgresql', 'redis'],
+      typical_tasks: ['lead backend architecture', 'mentor engineers', 'improve transactional reliability'],
+      communication_intensity: 'high'
+    }
+  };
 
   const aptitudeTestOne = normalizeTest(mockTests['test-apt-1'], {
     id: 'test-apt-1',
@@ -131,6 +321,54 @@ function buildDemoDataset() {
     description: 'Demo aptitude assessment for frontend candidates.'
   });
 
+  const platformAptitudeTest = normalizeTest(mockTests['test-apt-1'], {
+    id: 'test-apt-4',
+    public_id: 'pub-apt-4',
+    hiring_task_id: platformTask.id,
+    title: 'Platform Engineer Aptitude Test',
+    description: 'Demo aptitude assessment for platform candidates.'
+  });
+
+  const platformDomainTest = normalizeTest(mockTests['test-dom-1'], {
+    id: 'test-dom-4',
+    public_id: 'pub-dom-4',
+    hiring_task_id: platformTask.id,
+    title: 'Platform Engineer Domain Test',
+    description: 'Demo domain assessment for platform candidates.'
+  });
+
+  const dataEngineerAptitudeTest = normalizeTest(mockTests['test-apt-1'], {
+    id: 'test-apt-5',
+    public_id: 'pub-apt-5',
+    hiring_task_id: dataEngineerTask.id,
+    title: 'Data Engineer Aptitude Test',
+    description: 'Demo aptitude assessment for data engineering candidates.'
+  });
+
+  const dataEngineerDomainTest = normalizeTest(mockTests['test-dom-1'], {
+    id: 'test-dom-5',
+    public_id: 'pub-dom-5',
+    hiring_task_id: dataEngineerTask.id,
+    title: 'Data Engineer Domain Test',
+    description: 'Demo domain assessment for data engineering candidates.'
+  });
+
+  const closedSeniorAptitudeTest = normalizeTest(mockTests['test-apt-1'], {
+    id: 'test-apt-6',
+    public_id: 'pub-apt-6',
+    hiring_task_id: closedSeniorBackendTask.id,
+    title: 'Senior Backend Engineer Aptitude Test',
+    description: 'Demo aptitude assessment for senior backend candidates.'
+  });
+
+  const closedSeniorDomainTest = normalizeTest(mockTests['test-dom-1'], {
+    id: 'test-dom-6',
+    public_id: 'pub-dom-6',
+    hiring_task_id: closedSeniorBackendTask.id,
+    title: 'Senior Backend Engineer Domain Test',
+    description: 'Demo domain assessment for senior backend candidates.'
+  });
+
   const interviewScript = {
     ...clone(mockInterviewScript),
     id: 'interview-1',
@@ -144,72 +382,243 @@ function buildDemoDataset() {
     }
   };
 
-  const candidateResults = mockCandidateResults[primaryTask.id] || [];
+  const platformInterviewScript = {
+    ...clone(mockInterviewScript),
+    id: 'interview-4',
+    hiring_task_id: platformTask.id,
+    title: 'Platform Engineer Interview Script',
+    description: 'Structured 10–15 minute interview guide.',
+    metadata: {
+      version: 1,
+      source_model: 'demo-seed',
+      seeded_demo: true
+    }
+  };
+
+  const dataEngineerInterviewScript = {
+    ...clone(mockInterviewScript),
+    id: 'interview-5',
+    hiring_task_id: dataEngineerTask.id,
+    title: 'Data Engineer Interview Script',
+    description: 'Structured 10–15 minute interview guide.',
+    metadata: {
+      version: 1,
+      source_model: 'demo-seed',
+      seeded_demo: true
+    }
+  };
+
+  const closedSeniorInterviewScript = {
+    ...clone(mockInterviewScript),
+    id: 'interview-6',
+    hiring_task_id: closedSeniorBackendTask.id,
+    title: 'Senior Backend Engineer Interview Script',
+    description: 'Structured 10–15 minute interview guide.',
+    metadata: {
+      version: 1,
+      source_model: 'demo-seed',
+      seeded_demo: true
+    }
+  };
+
+  const primaryCandidates = mockCandidateResults[primaryTask.id] || [];
+  const frontendCandidates = generateCandidateBatch({
+    names: [
+      'Saanvi Gupta',
+      'Aarav Mehta',
+      'Mira Kapoor',
+      'Dhruv Nair',
+      'Isha Bhandari',
+      'Rohan Saxena',
+      'Navya Jain',
+      'Kartikeya Sen'
+    ],
+    startDate: '2025-11-06T09:00:00Z',
+    aptitudeBase: 17,
+    domainBase: 0,
+    interviewBase: 0,
+    interviewCount: 0,
+    spacingMinutes: 62,
+    domainOffsetMinutes: 0,
+    interviewOffsetMinutes: 0
+  });
+  const platformCandidates = generateCandidateBatch({
+    names: [
+      'Nikhil Rao',
+      'Pooja Menon',
+      'Aditya Bansal',
+      'Neha Kulkarni',
+      'Varun Shetty',
+      'Shreya Das',
+      'Abhishek Jain',
+      'Ishita Kapoor',
+      'Mohit Suri',
+      'Ritika Joshi',
+      'Harsh Vora',
+      'Tanvi Kulshreshtha',
+      'Yash Agarwal',
+      'Sonal Deshpande'
+    ],
+    startDate: '2025-10-29T09:10:00Z',
+    aptitudeBase: 16,
+    domainBase: 15,
+    interviewBase: 15,
+    interviewCount: 5,
+    spacingMinutes: 67,
+    domainOffsetMinutes: 38,
+    interviewOffsetMinutes: 150
+  });
+  const dataEngineerCandidates = generateCandidateBatch({
+    names: [
+      'Devika Nambiar',
+      'Akash Yadav',
+      'Rhea Thomas',
+      'Siddharth Mehta',
+      'Nandini Rao',
+      'Pranav Kulkarni',
+      'Mitali Shah',
+      'Kunal Arora',
+      'Bhavna Iqbal',
+      'Gaurav Sinha',
+      'Aparna Iyer',
+      'Saurabh Pillai',
+      'Kriti Bhatia',
+      'Jatin Narang',
+      'Lavanya Krish',
+      'Rishabh Tiwari',
+      'Madhuri Sen',
+      'Anirudh Bose'
+    ],
+    startDate: '2025-10-25T08:40:00Z',
+    aptitudeBase: 17,
+    domainBase: 16,
+    interviewBase: 16,
+    interviewCount: 6,
+    spacingMinutes: 59,
+    domainOffsetMinutes: 35,
+    interviewOffsetMinutes: 142
+  });
+  const closedSeniorCandidates = generateCandidateBatch({
+    names: [
+      'Aisha Khan',
+      'Rajat Menon',
+      'Simran Kaur',
+      'Deepak Bedi',
+      'Nupur Shah',
+      'Aman Chawla',
+      'Ira Mukherjee',
+      'Keshav Rao',
+      'Diya Arvind',
+      'Manav Kapoor',
+      'Sana Mirza',
+      'Rohit Batra',
+      'Tara Bhonsle',
+      'Kabir Anand',
+      'Zoya Merchant',
+      'Anmol Gill',
+      'Reyansh Desai',
+      'Pallavi Rao',
+      'Rhea Khanna',
+      'Shivam Puri'
+    ],
+    startDate: '2025-10-19T09:00:00Z',
+    aptitudeBase: 17,
+    domainBase: 16,
+    interviewBase: 17,
+    interviewCount: 8,
+    spacingMinutes: 54,
+    domainOffsetMinutes: 36,
+    interviewOffsetMinutes: 135
+  });
+
   const attempts = [];
 
-  for (const result of candidateResults) {
-    const slug = slugifyCandidateName(result.candidate_name);
+  const primaryRecords = buildAttemptRecords({
+    taskId: primaryTask.id,
+    aptitudeTestId: aptitudeTestOne.id,
+    domainTestId: domainTestOne.id,
+    candidates: primaryCandidates
+  });
+  attempts.push(...primaryRecords.attempts);
 
-    if (result.aptitude_taken_at) {
-      attempts.push({
-        id: `attempt-apt-${slug}`,
-        test_id: aptitudeTestOne.id,
-        hiring_task_id: primaryTask.id,
-        candidate_name: result.candidate_name,
-        candidate_email: null,
-        started_at: result.aptitude_taken_at,
-        submitted_at: result.aptitude_taken_at,
-        total_score: Number(result.aptitude_score || 0),
-        max_score: 20,
-        metadata: {
-          seeded_demo: true,
-          started_via: 'demo-seed',
-          last_autosave_at: result.aptitude_taken_at,
-          last_scored_at: result.aptitude_taken_at
-        }
-      });
-    }
+  const frontendRecords = buildAttemptRecords({
+    taskId: secondaryTask.id,
+    aptitudeTestId: aptitudeTestTwo.id,
+    domainTestId: null,
+    candidates: frontendCandidates
+  });
+  attempts.push(...frontendRecords.attempts);
 
-    if (result.domain_taken_at) {
-      attempts.push({
-        id: `attempt-dom-${slug}`,
-        test_id: domainTestOne.id,
-        hiring_task_id: primaryTask.id,
-        candidate_name: result.candidate_name,
-        candidate_email: null,
-        started_at: result.domain_taken_at,
-        submitted_at: result.domain_taken_at,
-        total_score: Number(result.domain_score || 0),
-        max_score: 20,
-        metadata: {
-          seeded_demo: true,
-          started_via: 'demo-seed',
-          last_autosave_at: result.domain_taken_at,
-          last_scored_at: result.domain_taken_at
-        }
-      });
-    }
-  }
+  const platformRecords = buildAttemptRecords({
+    taskId: platformTask.id,
+    aptitudeTestId: platformAptitudeTest.id,
+    domainTestId: platformDomainTest.id,
+    candidates: platformCandidates
+  });
+  attempts.push(...platformRecords.attempts);
+
+  const dataEngineerRecords = buildAttemptRecords({
+    taskId: dataEngineerTask.id,
+    aptitudeTestId: dataEngineerAptitudeTest.id,
+    domainTestId: dataEngineerDomainTest.id,
+    candidates: dataEngineerCandidates
+  });
+  attempts.push(...dataEngineerRecords.attempts);
+
+  const closedSeniorRecords = buildAttemptRecords({
+    taskId: closedSeniorBackendTask.id,
+    aptitudeTestId: closedSeniorAptitudeTest.id,
+    domainTestId: closedSeniorDomainTest.id,
+    candidates: closedSeniorCandidates
+  });
+  attempts.push(...closedSeniorRecords.attempts);
 
   const primaryTaskStats = computeStats({
     aptitudeTestId: aptitudeTestOne.id,
     domainTestId: domainTestOne.id,
     interviewScriptId: interviewScript.id,
-    attempts
+    attempts,
+    interviewResults: primaryCandidates
   });
 
   const secondaryTaskStats = computeStats({
     aptitudeTestId: aptitudeTestTwo.id,
     domainTestId: null,
     interviewScriptId: null,
-    attempts
+    attempts,
+    interviewResults: frontendCandidates
   });
 
   const tertiaryTaskStats = computeStats({
     aptitudeTestId: null,
     domainTestId: null,
     interviewScriptId: null,
-    attempts
+    attempts,
+    interviewResults: []
+  });
+
+  const platformTaskStats = computeStats({
+    aptitudeTestId: platformAptitudeTest.id,
+    domainTestId: platformDomainTest.id,
+    interviewScriptId: platformInterviewScript.id,
+    attempts,
+    interviewResults: platformCandidates
+  });
+
+  const dataEngineerTaskStats = computeStats({
+    aptitudeTestId: dataEngineerAptitudeTest.id,
+    domainTestId: dataEngineerDomainTest.id,
+    interviewScriptId: dataEngineerInterviewScript.id,
+    attempts,
+    interviewResults: dataEngineerCandidates
+  });
+
+  const closedSeniorTaskStats = computeStats({
+    aptitudeTestId: closedSeniorAptitudeTest.id,
+    domainTestId: closedSeniorDomainTest.id,
+    interviewScriptId: closedSeniorInterviewScript.id,
+    attempts,
+    interviewResults: closedSeniorCandidates
   });
 
   const tasks = [
@@ -224,7 +633,8 @@ function buildDemoDataset() {
       stats: primaryTaskStats,
       metadata: {
         seeded_demo: true,
-        interview_scores: {}
+        workflow_status: 'open',
+        interview_scores: primaryRecords.interviewScores
       },
       llm_model: 'demo-seed',
       llm_response_id: 'demo-seed'
@@ -239,7 +649,8 @@ function buildDemoDataset() {
       interview_script_id: null,
       stats: secondaryTaskStats,
       metadata: {
-        seeded_demo: true
+        seeded_demo: true,
+        workflow_status: 'open'
       },
       llm_model: 'demo-seed',
       llm_response_id: 'demo-seed'
@@ -254,7 +665,61 @@ function buildDemoDataset() {
       interview_script_id: null,
       stats: tertiaryTaskStats,
       metadata: {
-        seeded_demo: true
+        seeded_demo: true,
+        workflow_status: 'open'
+      },
+      llm_model: 'demo-seed',
+      llm_response_id: 'demo-seed'
+    },
+    {
+      ...platformTask,
+      has_aptitude_test: true,
+      has_domain_test: true,
+      has_interview_script: true,
+      aptitude_test_id: platformAptitudeTest.id,
+      domain_test_id: platformDomainTest.id,
+      interview_script_id: platformInterviewScript.id,
+      stats: platformTaskStats,
+      metadata: {
+        seeded_demo: true,
+        workflow_status: 'open',
+        interview_scores: platformRecords.interviewScores
+      },
+      llm_model: 'demo-seed',
+      llm_response_id: 'demo-seed'
+    },
+    {
+      ...dataEngineerTask,
+      has_aptitude_test: true,
+      has_domain_test: true,
+      has_interview_script: true,
+      aptitude_test_id: dataEngineerAptitudeTest.id,
+      domain_test_id: dataEngineerDomainTest.id,
+      interview_script_id: dataEngineerInterviewScript.id,
+      stats: dataEngineerTaskStats,
+      metadata: {
+        seeded_demo: true,
+        workflow_status: 'open',
+        interview_scores: dataEngineerRecords.interviewScores
+      },
+      llm_model: 'demo-seed',
+      llm_response_id: 'demo-seed'
+    },
+    {
+      ...closedSeniorBackendTask,
+      has_aptitude_test: true,
+      has_domain_test: true,
+      has_interview_script: true,
+      aptitude_test_id: closedSeniorAptitudeTest.id,
+      domain_test_id: closedSeniorDomainTest.id,
+      interview_script_id: closedSeniorInterviewScript.id,
+      stats: closedSeniorTaskStats,
+      metadata: {
+        seeded_demo: true,
+        workflow_status: 'closed',
+        status_reason: 'Hire completed',
+        hired_candidate_name: 'Aisha Khan',
+        interview_scores: closedSeniorRecords.interviewScores
       },
       llm_model: 'demo-seed',
       llm_response_id: 'demo-seed'
@@ -263,8 +728,23 @@ function buildDemoDataset() {
 
   return {
     tasks,
-    tests: [aptitudeTestOne, domainTestOne, aptitudeTestTwo],
-    interviewScripts: [interviewScript],
+    tests: [
+      aptitudeTestOne,
+      domainTestOne,
+      aptitudeTestTwo,
+      platformAptitudeTest,
+      platformDomainTest,
+      dataEngineerAptitudeTest,
+      dataEngineerDomainTest,
+      closedSeniorAptitudeTest,
+      closedSeniorDomainTest
+    ],
+    interviewScripts: [
+      interviewScript,
+      platformInterviewScript,
+      dataEngineerInterviewScript,
+      closedSeniorInterviewScript
+    ],
     attempts
   };
 }

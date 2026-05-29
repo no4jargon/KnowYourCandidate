@@ -414,13 +414,26 @@ export function HiringTaskDetailScreen({ taskId, onNavigate }: HiringTaskDetailS
       <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h2 className="mb-2">{task.title}</h2>
+            <div className="mb-2 flex items-center gap-2">
+              <h2>{task.title}</h2>
+              {task.metadata?.workflow_status === 'closed' && (
+                <Badge variant="outline" className="border-yellow-200 text-yellow-900">
+                  Closed · Hire completed
+                </Badge>
+              )}
+            </div>
             <div className="flex items-center gap-3 text-gray-600">
               <span>{formatDate(task.created_at)}</span>
               <span>•</span>
               <Badge variant="secondary">
                 {task.job_description_facets.location} · {task.job_description_facets.work_type}
               </Badge>
+              {typeof task.metadata?.hired_candidate_name === 'string' && (
+                <>
+                  <span>•</span>
+                  <span>Hired: {task.metadata.hired_candidate_name}</span>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -37,7 +37,7 @@ export function LoginScreen({ onAuthenticated }: LoginScreenProps) {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
           <div className="mb-8 text-center">
-            <h1 className="mb-2">assess</h1>
+            <h1 className="mb-2">Assess</h1>
             <p className="text-gray-600">AI-assisted hiring assessment tool</p>
           </div>
 
